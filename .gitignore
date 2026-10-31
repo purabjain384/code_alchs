@@ -15,6 +15,7 @@ ENV/
 env.bak/
 venv.bak/
 
+
 # Pipenv / Poetry / Dependency locks
 # Remove these if you deliberately want to commit lock files
 # .pyenv/
@@ -53,7 +54,7 @@ data/processed/
 *.csv
 *.jsonl
 *.pdf
-*.txt
+
 *.xlsx
 # Exception: Allow configuration data if needed
 # !data/config.json
