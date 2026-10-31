@@ -1,0 +1,32 @@
+{
+  "model_version": "xgb-v1",
+  "model_name": "xgb",
+  "features": [
+    "Age",
+    "SystolicBP",
+    "DiastolicBP",
+    "BS",
+    "BodyTemp",
+    "HeartRate"
+  ],
+  "class_map": {
+    "0": "low",
+    "1": "mid",
+    "2": "high"
+  },
+  "label_encoding": {
+    "low risk": 0,
+    "mid risk": 1,
+    "high risk": 2
+  },
+  "cv_recall_high": 0.8845,
+  "cv_macro_f1": 0.8358,
+  "cv_accuracy": 0.8319,
+  "test_recall_high": 0.9636,
+  "test_macro_f1": 0.8463,
+  "test_accuracy": 0.8424,
+  "train_samples": 809,
+  "test_samples": 203,
+  "trained_at": "2026-10-31",
+  "random_seed": 42
+}

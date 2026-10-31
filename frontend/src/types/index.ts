@@ -1,75 +1,96 @@
-export type RiskLevel = 'HIGH' | 'MODERATE' | 'LOW';
+export type RiskLevel = 'HIGH' | 'MODERATE' | 'LOW' | 'UNASSESSED';
 
-export type UserRole = 'supervisor' | 'asha' | 'mother';
+export type NavTab = 'dashboard' | 'new-form' | 'history' | 'result';
 
 export interface AuthUser {
   uid: string;
   phone: string;
   name: string;
-  role: UserRole;
-  village: string;
-  ward: string;
-  mother_id?: string | null;
-  asha_id?: string | null;
+  age: number;
+  gestational_week?: number | null;
+  mother_id: string;
 }
 
-export interface DailyCareTask {
-  id: string;
-  title: string;
-  hindiTitle: string;
-  subtitle: string;
-  timeLabel: string;
-  completed: boolean;
-  icon: string;
+export interface ModelMeta {
+  model_version: string;
+  model_name: string;
+  features: string[];
+  cv_recall_high: number;
+  cv_macro_f1: number;
+  cv_accuracy: number;
+  test_recall_high: number;
+  test_macro_f1: number;
+  test_accuracy: number;
+  trained_at: string;
 }
 
 export interface MotherRecord {
   id: string;
   name: string;
-  hindiName?: string;
   age: number;
-  phone?: string;
-  village: string;
-  ward: string;
-  gestationalWeek: number;
-  trimester: 1 | 2 | 3;
-  edd: string;
+  phone: string;
+  gestationalWeek?: number | null;
+  trimester?: number | null;
   riskLevel: RiskLevel;
-  riskReason?: string;
+  riskReason: string;
   flags: string[];
-  bloodPressure: string;
-  hemoglobin: number;
-  weight: number;
-  fetalHeartRate: number;
-  bloodSugar?: number;
-  bodyTemp?: number;
-  heartRate?: number;
-  lastVisitDate: string;
-  nextDueDate: string;
-  isOverdue?: boolean;
-  overdueText?: string;
-  avatarUrl: string;
-  assignedAsha: {
-    id: string;
-    name: string;
-    phone: string;
-    village: string;
-    ward: string;
-  };
-  aiExplainability?: string[];
-  aiHindiAdvisory?: string;
-  aiEnglishSummary?: string;
-  audioBase64?: string;
-  urgencyScore?: number;
-  dailyTasks?: DailyCareTask[];
+  topFactors: string[];
+  probabilities: Record<string, number>;
+  trendFlag?: string | null;
+  systolicSlope?: number | null;
+  diastolicSlope?: number | null;
+  bloodPressure?: string | null;
+  systolicBP?: number | null;
+  diastolicBP?: number | null;
+  bloodSugar?: number | null;
+  bodyTemp?: number | null;
+  heartRate?: number | null;
+  hemoglobin?: number | null;
+  weight?: number | null;
+  visitCount: number;
+  lastVisitDate?: string | null;
+  aiExplainability: string[];
+  aiHindiAdvisory: string;
+  aiEnglishSummary: string;
+  audioBase64: string;
+  urgencyScore: number;
+  modelVersion: string;
 }
 
-export interface EvaluateVisitApiResponse {
+export interface VisitRecord {
   visit_id: string;
   mother_id: string;
+  mother_name: string;
+  age: number;
+  gestational_age_weeks?: number | null;
+  vitals: {
+    systolic: number;
+    diastolic: number;
+    blood_sugar_mmol: number;
+    body_temp_f: number;
+    heart_rate: number;
+    hemoglobin?: number | null;
+    weight_kg?: number | null;
+    fetal_heart_rate?: number | null;
+    fetal_movement?: string | null;
+    remarks?: string;
+  };
+  symptoms: string[];
   risk_level: 'low' | 'mid' | 'high';
-  frontend_risk_level: RiskLevel;
+  frontend_risk_level: 'LOW' | 'MODERATE' | 'HIGH';
+  risk_rank: number;
   urgency_score: number;
+  probabilities: {
+    low: number;
+    mid: number;
+    high: number;
+  };
+  top_factors: string[];
+  rule_flags: string[];
+  trend_flag?: string | null;
+  systolic_slope?: number | null;
+  diastolic_slope?: number | null;
+  model_version: string;
   risk_factors: string[];
   ai_explainability: string[];
   trend_summary: string;
@@ -78,47 +99,20 @@ export interface EvaluateVisitApiResponse {
   action_items_en: string[];
   action_items_hi: string[];
   audio_base64: string;
+  timestamp: string;
+}
+
+export interface EvaluateVisitApiResponse extends VisitRecord {
   saved_to_firestore: boolean;
   mother_record?: MotherRecord;
 }
 
 export interface MotherSummaryApiResponse {
   mother_id: string;
+  mother_name: string;
   visits_analyzed: number;
   latest_risk_level?: string | null;
   summary_en: string;
   summary_hi: string;
-  visits: Array<{
-    visit_id: string;
-    timestamp: string;
-    frontend_risk_level: RiskLevel;
-    urgency_score: number;
-    vitals: {
-      systolic: number;
-      diastolic: number;
-      blood_sugar_mmol: number;
-      body_temp_f: number;
-      heart_rate: number;
-      hemoglobin?: number;
-      weight_kg?: number;
-      fetal_heart_rate?: number;
-      fetal_movement?: string;
-    };
-    english_summary: string;
-    hindi_text: string;
-    trend_summary: string;
-  }>;
-}
-
-export interface SosDispatchRecord {
-  dispatch_id: string;
-  mother_id: string;
-  mother_name: string;
-  vehicle_no: string;
-  pilot_name: string;
-  pilot_phone: string;
-  eta_minutes: number;
-  target_facility: string;
-  emergency_reason: string;
-  created_at: string;
+  visits: VisitRecord[];
 }

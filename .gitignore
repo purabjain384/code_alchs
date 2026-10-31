@@ -44,9 +44,15 @@ marqo_data/
 .cache/torch/
 .cache/onnx/
 models/
+!Project1/models/
+!backend/Project1/models/
 *.bin
 *.gguf
 *.onnx
+
+# Firebase & Service Account Keys
+*serviceAccountKey*.json
+*firebase-adminsdk*.json
 
 # Data ingestion & Data pipelines
 data/raw/

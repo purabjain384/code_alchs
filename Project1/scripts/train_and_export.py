@@ -1,216 +1,198 @@
 """
-MatruRaksha Model Training and Serialization Script
-Trains Logistic Regression, Random Forest, XGBoost, and LightGBM using Stratified 5-Fold CV.
-Selects the model with highest high-risk recall and serializes to models/model.joblib and models/meta.json.
+MatruRaksha AI — Model Training & Export Script
+================================================
+Trains 4 classifiers on the UCI Maternal Health Risk dataset,
+selects the best by high-risk recall (5-fold Stratified CV),
+and saves model.joblib + meta.json into Project1/models/ and backend/Project1/models/.
 """
-import os
-import sys
-import json
-import hashlib
-import datetime
-import warnings
-warnings.filterwarnings("ignore")
 
+import json
+import os
+import shutil
+import sys
+import urllib.request
+from datetime import date
+
+import joblib
 import numpy as np
 import pandas as pd
-from sklearn.model_selection import StratifiedKFold
-from sklearn.preprocessing import StandardScaler
-from sklearn.pipeline import Pipeline
-from sklearn.linear_model import LogisticRegression
+from lightgbm import LGBMClassifier
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import classification_report, confusion_matrix, recall_score, f1_score, accuracy_score
-from sklearn.utils.class_weight import compute_sample_weight
-from sklearn.base import clone
-import joblib
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import (
+    accuracy_score,
+    classification_report,
+    f1_score,
+    make_scorer,
+    recall_score,
+)
+from sklearn.model_selection import StratifiedKFold, cross_validate, train_test_split
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
+from xgboost import XGBClassifier
 
-try:
-    from xgboost import XGBClassifier
-    has_xgb = True
-except ImportError:
-    has_xgb = False
-
-try:
-    from lightgbm import LGBMClassifier
-    has_lgbm = True
-except ImportError:
-    has_lgbm = False
-
-PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
-
-DATA_DIR  = os.path.join(PROJECT_ROOT, "data", "raw")
-MODEL_DIR = os.path.join(PROJECT_ROOT, "models")
-os.makedirs(MODEL_DIR, exist_ok=True)
+SEED = 42
+np.random.seed(SEED)
 
 FEATURES = ["Age", "SystolicBP", "DiastolicBP", "BS", "BodyTemp", "HeartRate"]
-LABEL_COL = "RiskLevel"
+TARGET = "RiskLevel"
 LABEL_MAP = {"low risk": 0, "mid risk": 1, "high risk": 2}
-LABEL_NAMES = ["low", "mid", "high"]
-N_FOLDS = 5
-RANDOM_SEED = 42
-HR_MIN = 40
+CLASS_NAMES = ["low", "mid", "high"]
 
-# 1. Locate dataset
-candidates = [
-    os.path.join(DATA_DIR, "maternal_health_risk_dataset.csv"),
-    os.path.join(DATA_DIR, "Maternal Health Risk Data Set.csv"),
-    os.path.join(DATA_DIR, "maternal_health_risk.csv"),
-]
-if os.path.exists(DATA_DIR):
-    for f in os.listdir(DATA_DIR):
-        if f.lower().endswith(".csv"):
-            candidates.insert(0, os.path.join(DATA_DIR, f))
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
+REPO_ROOT = os.path.dirname(PROJECT_ROOT)
+DATA_DIR = os.path.join(PROJECT_ROOT, "data", "raw")
+MODEL_DIR = os.path.join(PROJECT_ROOT, "models")
 
-csv_path = None
-for c in candidates:
-    if os.path.isfile(c):
-        csv_path = c
-        break
+UCI_CSV_URL = (
+    "https://archive.ics.uci.edu/ml/machine-learning-databases/00639/"
+    "Maternal%20Health%20Risk%20Data%20Set.csv"
+)
 
-if not csv_path:
-    raise FileNotFoundError(f"Could not find dataset in {DATA_DIR}")
 
-print(f"Loading data from: {csv_path}")
-df_raw = pd.read_csv(csv_path)
-df_raw.columns = df_raw.columns.str.strip()
+def find_or_download_dataset(data_dir: str) -> str:
+    """Locate the CSV file in data/raw/ or download from UCI repository."""
+    os.makedirs(data_dir, exist_ok=True)
+    candidates = [f for f in os.listdir(data_dir) if f.endswith(".csv")]
+    if candidates:
+        return os.path.join(data_dir, candidates[0])
 
-df = df_raw.copy()
-df[LABEL_COL] = df[LABEL_COL].astype(str).str.strip().str.lower()
-df["y"] = df[LABEL_COL].map(LABEL_MAP)
+    target_csv = os.path.join(data_dir, "Maternal Health Risk Data Set.csv")
+    print(f"Downloading UCI Maternal Health Risk dataset to {target_csv}...")
+    opener = urllib.request.build_opener()
+    opener.addheaders = [("User-Agent", "Mozilla/5.0")]
+    urllib.request.install_opener(opener)
+    urllib.request.urlretrieve(UCI_CSV_URL, target_csv)
+    return target_csv
 
-# Cleaning
-df = df[df["HeartRate"] >= HR_MIN].copy()
-df = df.drop_duplicates(subset=FEATURES + [LABEL_COL]).reset_index(drop=True)
-df = df.dropna(subset=FEATURES + ["y"]).reset_index(drop=True)
 
-print(f"Clean rows: {len(df)}")
-X = df[FEATURES].values.astype(np.float64)
-y = df["y"].values.astype(np.int32)
+def load_and_clean(csv_path: str) -> pd.DataFrame:
+    df = pd.read_csv(csv_path)
+    df.columns = df.columns.str.strip()
+    df[TARGET] = df[TARGET].str.strip().str.lower().map(LABEL_MAP)
+    assert df[TARGET].isna().sum() == 0, f"Unmapped labels in {TARGET}"
+    df = df[(df["HeartRate"] >= 40) & (df["Age"] >= 10) & (df["Age"] <= 70)].reset_index(drop=True)
+    return df
 
-# 2. Models
-models = {
-    "rf": ("Random Forest", RandomForestClassifier(
-        n_estimators=300, max_depth=None, min_samples_split=5, min_samples_leaf=2,
-        class_weight="balanced", random_state=RANDOM_SEED, n_jobs=-1
-    )),
-    "lr": ("Logistic Regression", Pipeline([
-        ("scaler", StandardScaler()),
-        ("clf", LogisticRegression(C=1.0, class_weight="balanced", solver="lbfgs",
-                                   max_iter=2000, random_state=RANDOM_SEED))
-    ]))
-}
 
-if has_xgb:
-    models["xgb"] = ("XGBoost", XGBClassifier(
-        n_estimators=300, max_depth=6, learning_rate=0.1, eval_metric="mlogloss",
-        random_state=RANDOM_SEED, n_jobs=-1
-    ))
+def get_models() -> dict:
+    return {
+        "rf": RandomForestClassifier(
+            n_estimators=200, random_state=SEED, class_weight="balanced"
+        ),
+        "lr": Pipeline([
+            ("scaler", StandardScaler()),
+            ("clf", LogisticRegression(max_iter=1000, random_state=SEED, class_weight="balanced")),
+        ]),
+        "xgb": XGBClassifier(
+            n_estimators=200, max_depth=6, learning_rate=0.1,
+            random_state=SEED, eval_metric="mlogloss",
+        ),
+        "lgbm": LGBMClassifier(
+            n_estimators=200, random_state=SEED, class_weight="balanced", verbose=-1
+        ),
+    }
 
-if has_lgbm:
-    models["lgbm"] = ("LightGBM", LGBMClassifier(
-        n_estimators=300, max_depth=-1, learning_rate=0.1, class_weight="balanced",
-        random_state=RANDOM_SEED, verbose=-1, n_jobs=-1
-    ))
 
-# 3. Cross Validation
-skf = StratifiedKFold(n_splits=N_FOLDS, shuffle=True, random_state=RANDOM_SEED)
-cv_results = {}
-cv_preds = {}
+def sync_to_backend():
+    """Copy Project1/src and Project1/models into backend/Project1 for Docker/Cloud Run isolation."""
+    backend_p1 = os.path.join(REPO_ROOT, "backend", "Project1")
+    for sub in ["src", "models"]:
+        src_dir = os.path.join(PROJECT_ROOT, sub)
+        dst_dir = os.path.join(backend_p1, sub)
+        if os.path.exists(dst_dir):
+            shutil.rmtree(dst_dir)
+        shutil.copytree(src_dir, dst_dir)
+    init_file = os.path.join(backend_p1, "__init__.py")
+    if not os.path.exists(init_file):
+        with open(init_file, "w") as f:
+            f.write("")
+    print(f"Synced Project1/{{src,models}} -> {backend_p1}")
 
-print("\n--- Running 5-Fold Stratified Cross Validation ---")
-for key, (name, estimator) in models.items():
-    fold_metrics = []
-    all_y_true, all_y_pred, all_y_proba = [], [], []
 
-    for fold_idx, (train_idx, val_idx) in enumerate(skf.split(X, y), 1):
-        X_tr, X_val = X[train_idx], X[val_idx]
-        y_tr, y_val = y[train_idx], y[val_idx]
-        clf = clone(estimator)
+def main():
+    csv_path = find_or_download_dataset(DATA_DIR)
+    print(f"Loading dataset: {csv_path}")
+    df = load_and_clean(csv_path)
+    print(f"Cleaned rows: {len(df)}")
 
-        if key == "xgb":
-            sw = compute_sample_weight("balanced", y_tr)
-            clf.fit(X_tr, y_tr, sample_weight=sw)
-        else:
-            clf.fit(X_tr, y_tr)
+    X = df[FEATURES].values
+    y = df[TARGET].values
 
-        y_pred = clf.predict(X_val)
-        y_proba = clf.predict_proba(X_val)
-        rec_per_class = recall_score(y_val, y_pred, average=None, labels=[0, 1, 2])
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.2, stratify=y, random_state=SEED
+    )
 
-        fold_metrics.append({
-            "accuracy": accuracy_score(y_val, y_pred),
-            "macro_f1": f1_score(y_val, y_pred, average="macro"),
-            "weighted_f1": f1_score(y_val, y_pred, average="weighted"),
-            "recall_low": rec_per_class[0],
-            "recall_mid": rec_per_class[1],
-            "recall_high": rec_per_class[2]
-        })
-        all_y_true.extend(y_val)
-        all_y_pred.extend(y_pred)
-        all_y_proba.append(y_proba)
+    cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=SEED)
+    scoring = {
+        "accuracy": "accuracy",
+        "macro_f1": "f1_macro",
+        "recall_high": make_scorer(
+            lambda yt, yp: recall_score(yt, yp, labels=[2], average="macro")
+        ),
+    }
 
-    cv_results[key] = fold_metrics
-    cv_preds[key] = (np.array(all_y_true), np.array(all_y_pred), np.vstack(all_y_proba))
+    models = get_models()
+    cv_summary = {}
 
-# Summary table
-summary_rows = []
-for key in models:
-    df_f = pd.DataFrame(cv_results[key])
-    means = df_f.mean()
-    stds = df_f.std()
-    summary_rows.append({
-        "key": key,
-        "model": models[key][0],
-        "recall_high": round(float(means["recall_high"]), 4),
-        "recall_high_std": round(float(stds["recall_high"]), 4),
-        "macro_f1": round(float(means["macro_f1"]), 4),
-        "accuracy": round(float(means["accuracy"]), 4),
-    })
+    for key, model in models.items():
+        scores = cross_validate(model, X_train, y_train, cv=cv, scoring=scoring)
+        cv_summary[key] = {
+            "accuracy": float(np.mean(scores["test_accuracy"])),
+            "macro_f1": float(np.mean(scores["test_macro_f1"])),
+            "recall_high": float(np.mean(scores["test_recall_high"])),
+        }
+        print(f"  {key:6s} -> Acc: {cv_summary[key]['accuracy']:.4f} | "
+              f"F1: {cv_summary[key]['macro_f1']:.4f} | "
+              f"High-Risk Recall: {cv_summary[key]['recall_high']:.4f}")
 
-df_compare = pd.DataFrame(summary_rows).sort_values(by="recall_high", ascending=False).reset_index(drop=True)
-print("\n" + df_compare.to_string())
+    best_key = max(
+        cv_summary,
+        key=lambda k: (cv_summary[k]["recall_high"], cv_summary[k]["macro_f1"]),
+    )
+    print(f"\nWinner: {best_key}")
 
-# 4. Best model selection
-best_key = df_compare.loc[0, "key"]
-best_name, best_base = models[best_key]
-print(f"\nWinner: {best_name} ({best_key}) with High-Risk Recall = {df_compare.loc[0, 'recall_high']}")
+    winner = models[best_key]
+    winner.fit(X_train, y_train)
+    y_pred = winner.predict(X_test)
 
-# 5. Train final model on full data
-final_model = clone(best_base)
-if best_key == "xgb":
-    sw_full = compute_sample_weight("balanced", y)
-    final_model.fit(X, y, sample_weight=sw_full)
-else:
-    final_model.fit(X, y)
+    print("\nHold-out Test Report:")
+    print(classification_report(y_test, y_pred, target_names=CLASS_NAMES, digits=4))
 
-# 6. Save model and metadata
-model_path = os.path.join(MODEL_DIR, "model.joblib")
-joblib.dump(final_model, model_path)
-print(f"Saved model to: {model_path}")
+    test_acc = accuracy_score(y_test, y_pred)
+    test_f1 = f1_score(y_test, y_pred, average="macro")
+    test_rec_high = recall_score(y_test, y_pred, labels=[2], average="macro")
 
-versioned_path = os.path.join(MODEL_DIR, f"{best_key}_maternal_risk_v1.joblib")
-joblib.dump(final_model, versioned_path)
+    os.makedirs(MODEL_DIR, exist_ok=True)
+    model_path = os.path.join(MODEL_DIR, "model.joblib")
+    joblib.dump(winner, model_path)
+    print(f"Saved model: {model_path}")
 
-data_hash = hashlib.sha256(df[FEATURES + [LABEL_COL]].to_csv(index=False).encode()).hexdigest()[:16]
-meta = {
-    "model_key": best_key,
-    "model_name": best_name,
-    "model_file": "model.joblib",
-    "features": FEATURES,
-    "label_map": LABEL_MAP,
-    "label_names": LABEL_NAMES,
-    "n_folds": N_FOLDS,
-    "n_samples": int(len(X)),
-    "dataset_hash": data_hash,
-    "cv_recall_high": float(df_compare.loc[0, "recall_high"]),
-    "cv_macro_f1": float(df_compare.loc[0, "macro_f1"]),
-    "cv_accuracy": float(df_compare.loc[0, "accuracy"]),
-    "trained_at": datetime.datetime.now().isoformat(),
-    "random_seed": RANDOM_SEED,
-}
+    meta = {
+        "model_version": f"{best_key}-v1",
+        "model_name": best_key,
+        "features": FEATURES,
+        "class_map": {"0": "low", "1": "mid", "2": "high"},
+        "label_encoding": LABEL_MAP,
+        "cv_recall_high": round(cv_summary[best_key]["recall_high"], 4),
+        "cv_macro_f1": round(cv_summary[best_key]["macro_f1"], 4),
+        "cv_accuracy": round(cv_summary[best_key]["accuracy"], 4),
+        "test_recall_high": round(float(test_rec_high), 4),
+        "test_macro_f1": round(float(test_f1), 4),
+        "test_accuracy": round(float(test_acc), 4),
+        "train_samples": int(len(X_train)),
+        "test_samples": int(len(X_test)),
+        "trained_at": str(date.today()),
+        "random_seed": SEED,
+    }
+    meta_path = os.path.join(MODEL_DIR, "meta.json")
+    with open(meta_path, "w") as f:
+        json.dump(meta, f, indent=2)
+    print(f"Saved metadata: {meta_path}")
 
-meta_path = os.path.join(MODEL_DIR, "meta.json")
-with open(meta_path, "w") as f:
-    json.dump(meta, f, indent=2)
-print(f"Saved metadata to: {meta_path}")
+    sync_to_backend()
 
-print("\nTraining and artifact serialization complete!")
+
+if __name__ == "__main__":
+    main()

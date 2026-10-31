@@ -2,9 +2,11 @@
 venv/
 __pycache__/
 *.pyc
-.env
-serviceAccountKey.json
-.git/
+*.pyo
+*.pyd
 .pytest_cache/
+.env
+.env.*
+*serviceAccountKey*.json
+*firebase-adminsdk*.json
 tests/
-

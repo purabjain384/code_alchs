@@ -1,11 +1,9 @@
 import json
 import logging
 import os
+import sys
 from pathlib import Path
-from typing import Any, Dict, List, Literal
-
-import joblib
-import numpy as np
+from typing import Any, Dict, List
 
 from app.models.schemas import (
     ClinicalRuleOutput,
@@ -17,279 +15,101 @@ from app.models.schemas import (
 
 logger = logging.getLogger(__name__)
 
-PROTOCOLS_PATH = Path(__file__).resolve().parent.parent / "data" / "mohfw_protocols.json"
-with open(PROTOCOLS_PATH, "r", encoding="utf-8") as f:
-    MOHFW_PROTOCOLS: Dict[str, dict] = json.load(f)
+# Locate Project1 package (either in backend/Project1 or ../Project1)
+BACKEND_ROOT = Path(__file__).resolve().parents[2]
+REPO_ROOT = BACKEND_ROOT.parent
 
-MODEL_PATH = os.getenv("MODEL_PATH", "rf_model.joblib")
-_RF_MODEL = None
+for candidate_root in [BACKEND_ROOT, REPO_ROOT]:
+    if (candidate_root / "Project1" / "src").exists():
+        if str(candidate_root) not in sys.path:
+            sys.path.insert(0, str(candidate_root))
+        break
 
-if os.path.exists(MODEL_PATH):
-    try:
-        _RF_MODEL = joblib.load(MODEL_PATH)
-        logger.info("Loaded Random Forest model from %s", MODEL_PATH)
-    except Exception as exc:
-        logger.warning("Failed to load %s (%s). Using clinical heuristic fallback.", MODEL_PATH, exc)
+from Project1.src.risk_engine import RiskEngine as Project1RiskEngine  # noqa: E402
+from Project1.src.rules import check_rules as project1_check_rules  # noqa: E402
+from Project1.src.schemas import VitalsInput as P1VitalsInput  # noqa: E402
+from Project1.src.trend import check_bp_trend as project1_check_bp_trend  # noqa: E402
 
+_ENGINE_INSTANCE: Project1RiskEngine | None = None
+_META_DICT: Dict[str, Any] = {}
 
-def map_to_frontend_risk(level: Literal["low", "mid", "high"]) -> Literal["LOW", "MODERATE", "HIGH"]:
-    if level == "high":
-        return "HIGH"
-    if level == "mid":
-        return "MODERATE"
-    return "LOW"
+FRONTEND_MAP = {"low": "LOW", "mid": "MODERATE", "high": "HIGH"}
 
-
-def predict_ml_risk(age: int, vitals: VitalsInput) -> MLRiskOutput:
-    """
-    Layer 1: 6-Feature UCI Maternal Health Risk ML Adapter
-    Exact feature vector order: [Age, SystolicBP, DiastolicBP, BS, BodyTemp, HeartRate]
-    """
-    features = np.array(
-        [[
-            float(age),
-            float(vitals.systolic),
-            float(vitals.diastolic),
-            float(vitals.blood_sugar_mmol),
-            float(vitals.body_temp_f),
-            float(vitals.heart_rate),
-        ]],
-        dtype=float,
-    )
-
-    if _RF_MODEL is not None:
-        try:
-            pred = _RF_MODEL.predict(features)[0]
-            label_map = {0: "low", 1: "mid", 2: "high", "low risk": "low", "mid risk": "mid", "high risk": "high"}
-            risk_level = label_map.get(str(pred).lower() if isinstance(pred, str) else pred, "mid")
-            probs = {"low": 0.2, "mid": 0.3, "high": 0.5}
-            if hasattr(_RF_MODEL, "predict_proba"):
-                raw_probs = _RF_MODEL.predict_proba(features)[0]
-                if len(raw_probs) == 3:
-                    probs = {
-                        "low": round(float(raw_probs[0]), 3),
-                        "mid": round(float(raw_probs[1]), 3),
-                        "high": round(float(raw_probs[2]), 3),
-                    }
-            return MLRiskOutput(risk_level=risk_level, probabilities=probs)
-        except Exception as exc:
-            logger.warning("RF model inference failed (%s), falling back to calibrated scorer.", exc)
-
-    # Calibrated UCI-aligned fallback scorer when rf_model.joblib is not yet dropped in
-    score = 0.0
-    if vitals.systolic >= 140 or vitals.diastolic >= 90:
-        score += 0.55
-    elif vitals.systolic >= 130 or vitals.diastolic >= 85:
-        score += 0.30
-
-    if vitals.blood_sugar_mmol >= 7.8:
-        score += 0.35
-    elif vitals.blood_sugar_mmol >= 6.7:
-        score += 0.20
-
-    if vitals.body_temp_f >= 100.4:
-        score += 0.35
-    if vitals.heart_rate >= 100 or vitals.heart_rate < 60:
-        score += 0.20
-    if age < 19 or age >= 35:
-        score += 0.15
-
-    high_p = min(0.95, round(score, 2))
-    if high_p >= 0.50:
-        return MLRiskOutput(
-            risk_level="high",
-            probabilities={"low": round(max(0.02, 1.0 - high_p - 0.15), 2), "mid": 0.15, "high": high_p},
-        )
-    if high_p >= 0.25:
-        return MLRiskOutput(
-            risk_level="mid",
-            probabilities={"low": 0.25, "mid": 0.55, "high": 0.20},
-        )
-    return MLRiskOutput(
-        risk_level="low",
-        probabilities={"low": 0.82, "mid": 0.13, "high": 0.05},
-    )
+RULE_PROTOCOLS = {
+    "bp_above_160_110": {
+        "flag": "bp_above_160_110",
+        "condition": "Hypertensive Crisis / Severe Pre-Eclampsia (BP >= 160/110 mmHg)",
+        "action_en": "Immediate referral to First Referral Unit (FRU); administer antihypertensive & MgSO4 per MoHFW protocol.",
+        "action_hi": "गंभीर उच्च रक्तचाप (BP >= 160/110): तुरंत जिला अस्पताल (FRU) ले जाएं।",
+    },
+    "bp_above_140_90": {
+        "flag": "bp_above_140_90",
+        "condition": "Pre-Eclampsia / Gestational Hypertension (BP >= 140/90 mmHg)",
+        "action_en": "Refer to PHC Medical Officer within 24 hours; check urine protein and monitor for danger signs.",
+        "action_hi": "उच्च रक्तचाप (BP >= 140/90): प्राथमिक स्वास्थ्य केंद्र (PHC) में डॉक्टर से तुरंत जांच कराएं।",
+    },
+    "high_blood_sugar": {
+        "flag": "high_blood_sugar",
+        "condition": "Gestational Hyperglycemia (Blood Sugar >= 11.1 mmol/L)",
+        "action_en": "Refer for fasting OGTT and diabetic antenatal management at PHC/CHC.",
+        "action_hi": "रक्त शर्करा अधिक है: खाली पेट शुगर जांच के लिए डॉक्टर से संपर्क करें और मीठे से परहेज करें।",
+    },
+    "fever": {
+        "flag": "fever",
+        "condition": "Maternal Pyrexia / Fever (Body Temp >= 100.4 °F)",
+        "action_en": "Evaluate for maternal infection, malaria, or UTI; give paracetamol and refer to PHC.",
+        "action_hi": "तेज बुखार (>= 100.4 °F): संक्रमण की जांच के लिए तुरंत नजदीकी स्वास्थ्य केंद्र जाएं।",
+    },
+    "abnormal_heart_rate": {
+        "flag": "abnormal_heart_rate",
+        "condition": "Abnormal Maternal Heart Rate (< 60 or > 100 bpm)",
+        "action_en": "Assess hydration, anemia, and thyroid/cardiac status after 15 minutes of rest.",
+        "action_hi": "हृदय गति असामान्य है: 15 मिनट आराम के बाद दोबारा जांच करें और डॉक्टर को दिखाएं।",
+    },
+    "severe_anemia_hb": {
+        "flag": "severe_anemia_hb",
+        "condition": "Severe Maternal Anemia (Hemoglobin < 7.0 g/dL)",
+        "action_en": "Urgent referral to FRU for IV Iron Sucrose / transfusion evaluation.",
+        "action_hi": "गंभीर एनीमिया (हीमोग्लोबिन < 7 g/dL): तुरंत FRU अस्पताल में भर्ती कराएं।",
+    },
+    "moderate_anemia_hb": {
+        "flag": "moderate_anemia_hb",
+        "condition": "Moderate Maternal Anemia (Hemoglobin 7.0 - 9.9 g/dL)",
+        "action_en": "Prescribe therapeutic double-dose IFA (1 tablet twice daily) and iron-rich diet.",
+        "action_hi": "मध्यम एनीमिया: दिन में दो बार आयरन (IFA) की गोली लें और हरी पत्तेदार सब्जियां खाएं।",
+    },
+}
 
 
-def evaluate_clinical_rules(age: int, vitals: VitalsInput, symptoms: List[str]) -> ClinicalRuleOutput:
-    """
-    Layer 2: Deterministic MoHFW & NHM Clinical Red-Flag Rules
-    """
-    flags: List[str] = []
-    protocols: List[dict] = []
-    override_high = False
-    override_mid = False
+def get_project1_engine() -> Project1RiskEngine:
+    global _ENGINE_INSTANCE, _META_DICT
+    if _ENGINE_INSTANCE is not None:
+        return _ENGINE_INSTANCE
 
-    if vitals.systolic >= 140 or vitals.diastolic >= 90:
-        flags.append("severe_hypertension_bp")
-        protocols.append(MOHFW_PROTOCOLS["severe_hypertension_bp"])
-        override_high = True
+    for candidate in [
+        BACKEND_ROOT / "Project1" / "models",
+        REPO_ROOT / "Project1" / "models",
+    ]:
+        model_file = candidate / "model.joblib"
+        meta_file = candidate / "meta.json"
+        if model_file.exists() and meta_file.exists():
+            _ENGINE_INSTANCE = Project1RiskEngine(
+                model_path=str(model_file),
+                meta_path=str(meta_file),
+            )
+            with open(meta_file, "r", encoding="utf-8") as f:
+                _META_DICT = json.load(f)
+            logger.info("Loaded Project1 RiskEngine from %s", candidate)
+            return _ENGINE_INSTANCE
 
-    if vitals.blood_sugar_mmol >= 7.8:
-        flags.append("severe_hyperglycemia_bs")
-        protocols.append(MOHFW_PROTOCOLS["severe_hyperglycemia_bs"])
-        override_high = True
-
-    if vitals.body_temp_f >= 100.4:
-        flags.append("maternal_fever_temp")
-        protocols.append(MOHFW_PROTOCOLS["maternal_fever_temp"])
-        override_high = True
-
-    if vitals.heart_rate >= 100 or vitals.heart_rate < 60:
-        flags.append("maternal_tachycardia_hr")
-        protocols.append(MOHFW_PROTOCOLS["maternal_tachycardia_hr"])
-        if vitals.heart_rate >= 110 or vitals.heart_rate < 55:
-            override_high = True
-        else:
-            override_mid = True
-
-    # NHM Hemoglobin (Anemia) checks
-    if vitals.hemoglobin is not None:
-        if vitals.hemoglobin < 9.0:
-            flags.append("severe_anemia_hb")
-            protocols.append(MOHFW_PROTOCOLS["severe_anemia_hb"])
-            override_high = True
-        elif vitals.hemoglobin < 11.0:
-            flags.append("moderate_anemia_hb")
-            protocols.append(MOHFW_PROTOCOLS["moderate_anemia_hb"])
-            override_mid = True
-
-    # NHM Fetal Heart Rate & Fetal Movement checks
-    fhr_abnormal = vitals.fetal_heart_rate is not None and (
-        vitals.fetal_heart_rate < 110 or vitals.fetal_heart_rate > 160
-    )
-    movement_abnormal = (vitals.fetal_movement or "Normal") in ("Reduced", "Absent")
-    if fhr_abnormal or movement_abnormal:
-        flags.append("fetal_distress_alert")
-        protocols.append(MOHFW_PROTOCOLS["fetal_distress_alert"])
-        override_high = True
-
-    if age < 19 or age >= 35:
-        flags.append("high_risk_maternal_age")
-        protocols.append(MOHFW_PROTOCOLS["high_risk_maternal_age"])
-        override_mid = True
-
-    danger_symptoms = {"bleeding", "severe headache", "blurred vision", "convulsions", "swelling", "reduced fetal movement"}
-    matched_symptoms = [s for s in symptoms if s.lower().strip() in danger_symptoms]
-    if matched_symptoms:
-        flags.append("danger_symptoms_reported")
-        if "severe_hypertension_bp" not in flags:
-            protocols.append(MOHFW_PROTOCOLS["severe_hypertension_bp"])
-        override_high = True
-
-    if not protocols:
-        protocols.append(MOHFW_PROTOCOLS["routine_anc_care"])
-
-    return ClinicalRuleOutput(
-        triggered_flags=flags,
-        override_to_high=override_high,
-        override_to_mid=override_mid,
-        matched_protocols=protocols,
+    raise FileNotFoundError(
+        "Project1/models/model.joblib not found. Run `python Project1/scripts/train_and_export.py` first."
     )
 
 
-def evaluate_visit_trend(current_vitals: VitalsInput, past_visits: List[Dict[str, Any]]) -> TrendAnalysisOutput:
-    """
-    Layer 3: Dynamic Multi-Visit Longitudinal Trajectory Analyzer
-    """
-    if not past_visits:
-        return TrendAnalysisOutput(
-            trend_flags=[],
-            trend_escalated=False,
-            trend_summary="First recorded visit for this mother (baseline established).",
-            delta_details={},
-        )
-
-    chronological = list(reversed(past_visits))
-    oldest_vitals = chronological[0].get("vitals", {})
-    prev_vitals = chronological[-1].get("vitals", {})
-
-    base_sys = float(oldest_vitals.get("systolic", current_vitals.systolic))
-    base_dia = float(oldest_vitals.get("diastolic", current_vitals.diastolic))
-    base_bs = float(oldest_vitals.get("blood_sugar_mmol", current_vitals.blood_sugar_mmol))
-
-    prev_sys = float(prev_vitals.get("systolic", current_vitals.systolic))
-    prev_dia = float(prev_vitals.get("diastolic", current_vitals.diastolic))
-
-    sys_delta_total = round(current_vitals.systolic - base_sys, 1)
-    dia_delta_total = round(current_vitals.diastolic - base_dia, 1)
-    bs_delta_total = round(current_vitals.blood_sugar_mmol - base_bs, 2)
-    sys_delta_last = round(current_vitals.systolic - prev_sys, 1)
-    dia_delta_last = round(current_vitals.diastolic - prev_dia, 1)
-
-    trend_flags: List[str] = []
-    escalated = False
-    summaries: List[str] = []
-
-    if sys_delta_total >= 15.0 or dia_delta_total >= 10.0 or sys_delta_last >= 15.0 or dia_delta_last >= 10.0:
-        trend_flags.append("rising_bp_trend")
-        escalated = True
-        summaries.append(
-            f"Rising BP trajectory detected (+{int(max(sys_delta_total, sys_delta_last))}/+{int(max(dia_delta_total, dia_delta_last))} mmHg across {len(past_visits) + 1} visits)."
-        )
-
-    if bs_delta_total >= 1.2:
-        trend_flags.append("rising_glucose_trend")
-        escalated = True
-        summaries.append(f"Rising blood glucose trend (+{bs_delta_total} mmol/L over recent visits).")
-
-    if not summaries:
-        summaries.append(
-            f"Vitals trajectory stable across {len(past_visits) + 1} visits (BP delta {sys_delta_last:+.0f}/{dia_delta_last:+.0f} mmHg vs previous visit)."
-        )
-
-    return TrendAnalysisOutput(
-        trend_flags=trend_flags,
-        trend_escalated=escalated,
-        trend_summary=" ".join(summaries),
-        delta_details={
-            "sys_delta_total": sys_delta_total,
-            "dia_delta_total": dia_delta_total,
-            "bs_delta_total": bs_delta_total,
-        },
-    )
-
-
-def build_explainability_badges(
-    age: int,
-    vitals: VitalsInput,
-    clinical: ClinicalRuleOutput,
-    trend: TrendAnalysisOutput,
-    ml_out: MLRiskOutput,
-) -> List[str]:
-    badges: List[str] = []
-    if vitals.systolic >= 140 or vitals.diastolic >= 90:
-        badges.append(f"BP {vitals.systolic}/{vitals.diastolic} mmHg (Crossed 140/90 threshold)")
-    elif vitals.systolic >= 130 or vitals.diastolic >= 85:
-        badges.append(f"Borderline BP {vitals.systolic}/{vitals.diastolic} mmHg (Pre-hypertension)")
-
-    if vitals.hemoglobin is not None:
-        if vitals.hemoglobin < 9.0:
-            badges.append(f"Hb {vitals.hemoglobin} g/dL (Severe Anemia < 9.0)")
-        elif vitals.hemoglobin < 11.0:
-            badges.append(f"Hb {vitals.hemoglobin} g/dL (Moderate Anemia < 11.0)")
-
-    if vitals.blood_sugar_mmol >= 7.8:
-        badges.append(f"Blood Sugar {vitals.blood_sugar_mmol} mmol/L (Hyperglycemia >= 7.8)")
-
-    if vitals.body_temp_f >= 100.4:
-        badges.append(f"Fever {vitals.body_temp_f} °F (Pyrexia >= 100.4 °F)")
-
-    if vitals.fetal_heart_rate is not None and (vitals.fetal_heart_rate < 110 or vitals.fetal_heart_rate > 160):
-        badges.append(f"Abnormal FHR {vitals.fetal_heart_rate} bpm (Normal 110-160)")
-
-    if (vitals.fetal_movement or "Normal") in ("Reduced", "Absent"):
-        badges.append(f"Fetal Movement: {vitals.fetal_movement}")
-
-    if "rising_bp_trend" in trend.trend_flags:
-        badges.append(trend.trend_summary)
-
-    if age < 19 or age >= 35:
-        badges.append(f"Maternal Age {age} yrs (High-risk age bracket)")
-
-    if not badges:
-        badges.append(f"All vitals normal (BP {vitals.systolic}/{vitals.diastolic}, Hb {vitals.hemoglobin or 11.5} g/dL)")
-    return badges
+def get_model_metadata() -> Dict[str, Any]:
+    get_project1_engine()
+    return _META_DICT
 
 
 def evaluate_full_risk(
@@ -298,49 +118,150 @@ def evaluate_full_risk(
     symptoms: List[str],
     past_visits: List[Dict[str, Any]],
 ) -> CombinedRiskOutput:
-    ml_out = predict_ml_risk(age, vitals)
-    clinical_out = evaluate_clinical_rules(age, vitals, symptoms)
-    trend_out = evaluate_visit_trend(vitals, past_visits)
+    engine = get_project1_engine()
 
-    for tf in trend_out.trend_flags:
-        if tf in MOHFW_PROTOCOLS and tf not in clinical_out.triggered_flags:
-            clinical_out.triggered_flags.append(tf)
-            clinical_out.matched_protocols.append(MOHFW_PROTOCOLS[tf])
+    # Format past visits chronologically (oldest -> newest) for trend detection
+    chronological_past = list(reversed(past_visits))
+    p1_history: List[Dict[str, Any]] = []
+    for pv in chronological_past:
+        v_dict = pv.get("vitals", pv)
+        if "systolic" in v_dict and "diastolic" in v_dict:
+            p1_history.append({
+                "systolic": float(v_dict["systolic"]),
+                "diastolic": float(v_dict["diastolic"]),
+            })
 
-    rank = {"low": 0, "mid": 1, "high": 2}
-    inv_rank: Dict[int, Literal["low", "mid", "high"]] = {0: "low", 1: "mid", 2: "high"}
-    current_rank = rank[ml_out.risk_level]
+    # Include the current visit as the latest point for trend evaluation
+    visits_with_current = p1_history + [
+        {"systolic": float(vitals.systolic), "diastolic": float(vitals.diastolic)}
+    ]
 
-    if clinical_out.override_to_high:
-        current_rank = 2
-    elif clinical_out.override_to_mid:
-        current_rank = max(current_rank, 1)
+    p1_vitals = P1VitalsInput(
+        age=age,
+        systolic=vitals.systolic,
+        diastolic=vitals.diastolic,
+        blood_sugar_mmol=vitals.blood_sugar_mmol,
+        body_temp_f=vitals.body_temp_f,
+        heart_rate=vitals.heart_rate,
+    )
 
-    if trend_out.trend_escalated:
-        if "rising_bp_trend" in trend_out.trend_flags and (vitals.systolic >= 130 or vitals.diastolic >= 85):
-            current_rank = 2
-        else:
-            current_rank = min(2, current_rank + 1)
+    risk_result = engine.predict_single(
+        vitals=p1_vitals,
+        visit_history=visits_with_current,
+    )
+    trend_detail = project1_check_bp_trend(visits_with_current)
 
-    final_level = inv_rank[current_rank]
-    frontend_level = map_to_frontend_risk(final_level)
+    rule_flags = list(risk_result.rule_flags)
+    final_class = risk_result.risk_level  # "low" | "mid" | "high"
+    risk_rank = int(risk_result.risk_rank)
 
-    base_urgency = ml_out.probabilities.get("high", 0.2)
-    if final_level == "high":
-        urgency = min(0.99, round(max(0.78, base_urgency + 0.30), 2))
-    elif final_level == "mid":
-        urgency = min(0.75, round(max(0.45, base_urgency + 0.20), 2))
+    # NHM clinical protocols: check Hemoglobin if provided
+    if vitals.hemoglobin is not None:
+        if vitals.hemoglobin < 7.0:
+            rule_flags.append("severe_anemia_hb")
+            final_class = "high"
+            risk_rank = 3
+        elif vitals.hemoglobin < 10.0:
+            rule_flags.append("moderate_anemia_hb")
+            if final_class == "low":
+                final_class = "mid"
+                risk_rank = max(risk_rank, 2)
+
+    danger_symptoms = {
+        "severe headache", "blurred vision", "convulsions",
+        "vaginal bleeding", "severe abdominal pain", "reduced fetal movement"
+    }
+    matched_symptoms = [s for s in symptoms if s.lower().strip() in danger_symptoms]
+    if matched_symptoms:
+        rule_flags.append(f"danger_symptoms: {', '.join(matched_symptoms)}")
+        final_class = "high"
+        risk_rank = 3
+
+    matched_protocols = [
+        RULE_PROTOCOLS[f] for f in rule_flags if f in RULE_PROTOCOLS
+    ]
+    if not matched_protocols:
+        matched_protocols.append({
+            "flag": "routine_anc",
+            "condition": "Standard Antenatal Care",
+            "action_en": "Continue routine antenatal checkups, daily iron/calcium supplementation, and hydration.",
+            "action_hi": "नियमित प्रसवपूर्व जांच, आयरन-कैल्शियम की गोलियां और पौष्टिक आहार जारी रखें।",
+        })
+
+    sys_slope = trend_detail.get("systolic_slope")
+    dia_slope = trend_detail.get("diastolic_slope")
+    trend_flag = trend_detail.get("trend_flag")
+
+    if trend_flag == "bp_rising_3_visits":
+        trend_summary = (
+            f"Rising BP trend detected across 3 visits "
+            f"(Systolic slope: {sys_slope:+.1f} mmHg/visit, Diastolic slope: {dia_slope:+.1f} mmHg/visit)."
+        )
+    elif len(visits_with_current) >= 2:
+        prev = visits_with_current[-2]
+        d_sys = vitals.systolic - prev["systolic"]
+        d_dia = vitals.diastolic - prev["diastolic"]
+        trend_summary = (
+            f"Compared to previous visit ({int(prev['systolic'])}/{int(prev['diastolic'])} mmHg), "
+            f"BP changed by {d_sys:+.0f}/{d_dia:+.0f} mmHg."
+        )
     else:
-        urgency = min(0.35, round(max(0.12, base_urgency), 2))
+        trend_summary = "First recorded visit for this mother (baseline established)."
 
-    badges = build_explainability_badges(age, vitals, clinical_out, trend_out, ml_out)
+    probs = risk_result.probabilities
+    top_factors = risk_result.top_factors
+    model_version = _META_DICT.get("model_version", risk_result.model_version)
+
+    urgency = round(
+        min(0.99, max(0.10, probs.get("high", 0.0) * 0.9 + probs.get("mid", 0.0) * 0.45 + (0.25 if rule_flags else 0.0))),
+        2,
+    )
+    if final_class == "high":
+        urgency = max(urgency, 0.85)
+    elif final_class == "mid":
+        urgency = max(urgency, 0.50)
+
+    explainability = [
+        f"ML Classifier ({model_version}): {final_class.upper()} risk "
+        f"(Low {int(probs.get('low', 0)*100)}%, Mid {int(probs.get('mid', 0)*100)}%, High {int(probs.get('high', 0)*100)}%) — "
+        f"Top driving vitals: {', '.join(top_factors)}"
+    ]
+    if rule_flags:
+        explainability.append(f"Clinical Rule Flags Triggered: {', '.join(rule_flags)}")
+    if trend_flag:
+        explainability.append(f"Longitudinal Trend Alert: {trend_summary}")
 
     return CombinedRiskOutput(
-        final_risk_level=final_level,
-        frontend_risk_level=frontend_level,
+        final_risk_level=final_class,
+        frontend_risk_level=FRONTEND_MAP[final_class],
+        risk_rank=risk_rank,
         urgency_score=urgency,
-        ml_output=ml_out,
-        clinical_output=clinical_out,
-        trend_output=trend_out,
-        ai_explainability=badges,
+        probabilities=probs,
+        top_factors=top_factors,
+        rule_flags=rule_flags,
+        trend_flag=trend_flag,
+        systolic_slope=sys_slope,
+        diastolic_slope=dia_slope,
+        model_version=model_version,
+        ml_output=MLRiskOutput(
+            risk_level=final_class,
+            probabilities=probs,
+            top_factors=top_factors,
+            model_version=model_version,
+        ),
+        clinical_output=ClinicalRuleOutput(
+            triggered_flags=rule_flags,
+            override_to_high=(final_class == "high" and bool(rule_flags)),
+            override_to_mid=(final_class == "mid" and bool(rule_flags)),
+            matched_protocols=matched_protocols,
+        ),
+        trend_output=TrendAnalysisOutput(
+            trend_flag=trend_flag,
+            trend_flags=[trend_flag] if trend_flag else [],
+            trend_escalated=bool(trend_flag),
+            trend_summary=trend_summary,
+            systolic_slope=sys_slope,
+            diastolic_slope=dia_slope,
+        ),
+        ai_explainability=explainability,
     )

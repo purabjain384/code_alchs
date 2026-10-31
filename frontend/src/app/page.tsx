@@ -1,644 +1,947 @@
 'use client';
 
-import React, { useState, useRef } from 'react';
-import Image from 'next/image';
-import { Header } from '@/components/Header';
-import { Sidebar } from '@/components/Sidebar';
-import { StatCard } from '@/components/StatCard';
-import { RiskBadge } from '@/components/RiskBadge';
-import { EmergencySosModal } from '@/components/EmergencySosModal';
-import { RegisterMotherModal } from '@/components/RegisterMotherModal';
-import { RecordAncVisitModal } from '@/components/RecordAncVisitModal';
-import { MotherProfileModal } from '@/components/MotherProfileModal';
-import { useApp } from '@/context/AppContext';
-import { MotherRecord, RiskLevel } from '@/types';
+import React, { useCallback, useEffect, useState } from 'react';
+import AuthGate from '@/components/AuthGate';
+import { HindiAudioPlayer } from '@/components/HindiAudioPlayer';
+import Sidebar from '@/components/Sidebar';
+import {
+  AuthUser,
+  MotherRecord,
+  NavTab,
+  VisitRecord,
+} from '@/types';
+import {
+  evaluateAncVisit,
+  fetchAllVisits,
+  fetchSingleMother,
+} from '@/lib/api';
 
-export default function SupervisorDashboardPage() {
-  const { mothers, importDatasetRows, isLoading } = useApp();
+const SYMPTOM_OPTIONS = [
+  'severe headache',
+  'blurred vision',
+  'vaginal bleeding',
+  'severe abdominal pain',
+  'reduced fetal movement',
+];
 
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState('overview');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [selectedRiskFilter, setSelectedRiskFilter] = useState<RiskLevel | 'ALL'>('ALL');
-  const [sosModalOpen, setSosModalOpen] = useState(false);
-  const [registerModalOpen, setRegisterModalOpen] = useState(false);
-  const [ancModalOpen, setAncModalOpen] = useState(false);
-  const [profileModalOpen, setProfileModalOpen] = useState(false);
-  const [selectedMother, setSelectedMother] = useState<MotherRecord | null>(null);
-  const [importing, setImporting] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
+export default function HomePage() {
+  const [user, setUser] = useState<AuthUser | null>(null);
+  const [activeTab, setActiveTab] = useState<NavTab>('dashboard');
 
-  const highRiskMothers = mothers.filter((m) => m.riskLevel === 'HIGH');
-  const moderateRiskMothers = mothers.filter((m) => m.riskLevel === 'MODERATE');
+  // Mother's Live Profile & Visit History from Backend (zero hardcoded values)
+  const [myProfile, setMyProfile] = useState<MotherRecord | null>(null);
+  const [myVisits, setMyVisits] = useState<VisitRecord[]>([]);
+  const [loadingData, setLoadingData] = useState(false);
 
-  const filteredMothers = mothers.filter((mother) => {
-    const matchesSearch =
-      mother.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      mother.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      mother.village.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesRisk =
-      selectedRiskFilter === 'ALL' || mother.riskLevel === selectedRiskFilter;
-    return matchesSearch && matchesRisk;
-  });
+  // New Checkup Form State — ONLY asks for vitals that change per checkup (all start empty "")
+  const [systolic, setSystolic] = useState('');
+  const [diastolic, setDiastolic] = useState('');
+  const [bloodSugar, setBloodSugar] = useState('');
+  const [bsUnit, setBsUnit] = useState<'mmol' | 'mgdl'>('mmol');
+  const [bodyTemp, setBodyTemp] = useState('');
+  const [tempUnit, setTempUnit] = useState<'F' | 'C'>('F');
+  const [heartRate, setHeartRate] = useState('');
+  const [hemoglobin, setHemoglobin] = useState('');
+  const [selectedSymptoms, setSelectedSymptoms] = useState<string[]>([]);
+  const [remarks, setRemarks] = useState('');
+  const [formError, setFormError] = useState('');
 
-  // Dynamic Trimester Distribution
-  const totalCount = mothers.length;
-  const t1Count = mothers.filter((m) => m.trimester === 1).length;
-  const t2Count = mothers.filter((m) => m.trimester === 2).length;
-  const t3Count = mothers.filter((m) => m.trimester === 3).length;
-  const t1Pct = totalCount ? Math.round((t1Count / totalCount) * 100) : 0;
-  const t2Pct = totalCount ? Math.round((t2Count / totalCount) * 100) : 0;
-  const t3Pct = totalCount ? Math.max(0, 100 - t1Pct - t2Pct) : 0;
+  // Analysis -> Result State
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [analysisStep, setAnalysisStep] = useState(0);
+  const [activeResult, setActiveResult] = useState<VisitRecord | null>(null);
 
-  // Dynamic Village Caseload
-  const villageMap = new Map<string, { total: number; highRisk: number }>();
-  mothers.forEach((m) => {
-    const cur = villageMap.get(m.village) || { total: 0, highRisk: 0 };
-    cur.total += 1;
-    if (m.riskLevel === 'HIGH') cur.highRisk += 1;
-    villageMap.set(m.village, cur);
-  });
-
-  const handleOpenSos = (mother?: MotherRecord) => {
-    setSelectedMother(mother || null);
-    setSosModalOpen(true);
-  };
-
-  const handleOpenProfile = (mother: MotherRecord) => {
-    setSelectedMother(mother);
-    setProfileModalOpen(true);
-  };
-
-  const handleOpenAnc = (mother?: MotherRecord) => {
-    setSelectedMother(mother || null);
-    setAncModalOpen(true);
-  };
-
-  const handleExportCsv = () => {
-    const headers = [
-      'MotherID',
-      'Name',
-      'Age',
-      'Village',
-      'Ward',
-      'GestationalWeek',
-      'Trimester',
-      'RiskLevel',
-      'BloodPressure',
-      'Hemoglobin',
-      'BloodSugar_mmol',
-      'BodyTemp_F',
-      'HeartRate_bpm',
-      'FHR_bpm',
-      'ExplainabilityFlags',
-    ];
-    const rows = filteredMothers.map((m) => [
-      m.id,
-      `"${m.name}"`,
-      m.age,
-      `"${m.village}"`,
-      `"${m.ward}"`,
-      m.gestationalWeek,
-      m.trimester,
-      m.riskLevel,
-      m.bloodPressure,
-      m.hemoglobin,
-      m.bloodSugar ?? 5.2,
-      m.bodyTemp ?? 98.4,
-      m.heartRate ?? 78,
-      m.fetalHeartRate,
-      `"${(m.aiExplainability || []).join('; ')}"`,
-    ]);
-    const csvContent = [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `matruraksha_registry_${new Date().toISOString().slice(0, 10)}.csv`;
-    link.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const handleDatasetFileImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setImporting(true);
-    try {
-      const text = await file.text();
-      let rows: Array<Record<string, unknown>> = [];
-      if (file.name.endsWith('.json')) {
-        const parsed = JSON.parse(text);
-        rows = Array.isArray(parsed) ? parsed : [parsed];
-      } else {
-        // Parse CSV (e.g. Age,SystolicBP,DiastolicBP,BS,BodyTemp,HeartRate,RiskLevel)
-        const lines = text.split(/\r?\n/).filter((l) => l.trim().length > 0);
-        if (lines.length > 1) {
-          const headers = lines[0].split(',').map((h) => h.trim());
-          rows = lines.slice(1, 51).map((line, idx) => {
-            const values = line.split(',').map((v) => v.trim());
-            const obj: Record<string, unknown> = { name: `Dataset Mother #${idx + 1}` };
-            headers.forEach((h, i) => {
-              obj[h] = values[i];
-            });
-            return obj;
-          });
+  // Restore session if present and valid (must include mother_id & age)
+  useEffect(() => {
+    const saved = localStorage.getItem('matruraksha_auth_user_v2');
+    if (saved) {
+      try {
+        const parsed: AuthUser = JSON.parse(saved);
+        if (parsed && parsed.mother_id && parsed.age) {
+          setUser(parsed);
+        } else {
+          localStorage.removeItem('matruraksha_auth_user_v2');
         }
+      } catch {
+        localStorage.removeItem('matruraksha_auth_user_v2');
       }
-      if (rows.length > 0) {
-        await importDatasetRows(rows);
-      }
+    }
+  }, []);
+
+  const loadMotherData = useCallback(async (currentUser: AuthUser) => {
+    setLoadingData(true);
+    try {
+      const [profile, visitsList] = await Promise.all([
+        fetchSingleMother(currentUser.mother_id).catch(() => null),
+        fetchAllVisits(100, currentUser.mother_id),
+      ]);
+      if (profile) setMyProfile(profile);
+      setMyVisits(visitsList);
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to parse dataset file');
+      console.error('Error loading mother data:', err);
     } finally {
-      setImporting(false);
-      if (fileInputRef.current) fileInputRef.current.value = '';
+      setLoadingData(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (user) {
+      loadMotherData(user);
+    }
+  }, [user, loadMotherData]);
+
+  const resetVitalsForm = () => {
+    setSystolic('');
+    setDiastolic('');
+    setBloodSugar('');
+    setBodyTemp('');
+    setHeartRate('');
+    setHemoglobin('');
+    setSelectedSymptoms([]);
+    setRemarks('');
+    setFormError('');
+  };
+
+  const handleOpenNewForm = () => {
+    resetVitalsForm();
+    setActiveTab('new-form');
+  };
+
+  const handleSubmitAssessment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user) return;
+    setFormError('');
+
+    const sysNum = Number(systolic);
+    const diaNum = Number(diastolic);
+    const bsRaw = Number(bloodSugar);
+    const tempRaw = Number(bodyTemp);
+    const hrNum = Number(heartRate);
+
+    if (!systolic || isNaN(sysNum) || sysNum < 70 || sysNum > 220) {
+      setFormError('Please enter Systolic BP between 70 and 220 mmHg.');
+      return;
+    }
+    if (!diastolic || isNaN(diaNum) || diaNum < 40 || diaNum > 150) {
+      setFormError('Please enter Diastolic BP between 40 and 150 mmHg.');
+      return;
+    }
+    if (!bloodSugar || isNaN(bsRaw) || bsRaw <= 0) {
+      setFormError('Please enter your Blood Sugar reading.');
+      return;
+    }
+    if (!bodyTemp || isNaN(tempRaw) || tempRaw <= 0) {
+      setFormError('Please enter your Body Temperature reading.');
+      return;
+    }
+    if (!heartRate || isNaN(hrNum) || hrNum < 40 || hrNum > 200) {
+      setFormError('Please enter your Heart Rate between 40 and 200 bpm.');
+      return;
+    }
+
+    const bsMmol = bsUnit === 'mgdl' ? Number((bsRaw / 18.0).toFixed(2)) : bsRaw;
+    const tempF = tempUnit === 'C' ? Number(((tempRaw * 9) / 5 + 32).toFixed(1)) : tempRaw;
+
+    setIsAnalyzing(true);
+    setAnalysisStep(1);
+
+    try {
+      setTimeout(() => setAnalysisStep(2), 250);
+      setTimeout(() => setAnalysisStep(3), 500);
+
+      const response = await evaluateAncVisit({
+        mother_id: user.mother_id,
+        age: user.age,
+        gestational_age_weeks: user.gestational_week ?? undefined,
+        vitals: {
+          systolic: sysNum,
+          diastolic: diaNum,
+          blood_sugar_mmol: bsMmol,
+          body_temp_f: tempF,
+          heart_rate: hrNum,
+          hemoglobin: hemoglobin ? Number(hemoglobin) : undefined,
+          remarks: remarks.trim() || undefined,
+        },
+        symptoms: selectedSymptoms,
+      });
+
+      setAnalysisStep(4);
+      await loadMotherData(user);
+      setActiveResult(response);
+      setIsAnalyzing(false);
+      setActiveTab('result');
+    } catch (err) {
+      setIsAnalyzing(false);
+      setFormError(err instanceof Error ? err.message : 'Evaluation failed.');
     }
   };
 
+  // 1. MANDATORY AUTH GATE FIRST (Collects Name, Age, Phone once on Sign Up)
+  if (!user) {
+    return (
+      <AuthGate
+        onAuthenticated={(loggedInUser) => {
+          localStorage.setItem('matruraksha_auth_user_v2', JSON.stringify(loggedInUser));
+          setUser(loggedInUser);
+        }}
+      />
+    );
+  }
+
+  const latestVisit = myVisits[0] || null;
+  const currentRisk = myProfile?.riskLevel || latestVisit?.frontend_risk_level || 'UNASSESSED';
+
+  const badgeStyle = (risk: string) => {
+    if (risk === 'HIGH' || risk === 'high')
+      return 'bg-red-100 text-red-800 border-red-200';
+    if (risk === 'MODERATE' || risk === 'mid')
+      return 'bg-amber-100 text-amber-800 border-amber-200';
+    if (risk === 'LOW' || risk === 'low')
+      return 'bg-emerald-100 text-emerald-800 border-emerald-200';
+    return 'bg-slate-100 text-slate-600 border-slate-200';
+  };
+
   return (
-    <div className="min-h-screen flex flex-col bg-background">
+    <div className="min-h-screen bg-slate-50 flex text-slate-900">
       <Sidebar
-        isOpen={sidebarOpen}
-        onClose={() => setSidebarOpen(false)}
         activeTab={activeTab}
-        onTabChange={setActiveTab}
-        onOpenSosModal={() => handleOpenSos()}
+        onSelectTab={(tab) => {
+          if (tab === 'new-form') {
+            handleOpenNewForm();
+          } else {
+            setActiveTab(tab);
+          }
+        }}
+        user={user}
+        onLogout={() => {
+          localStorage.removeItem('matruraksha_auth_user_v2');
+          setUser(null);
+          setMyProfile(null);
+          setMyVisits([]);
+          setActiveResult(null);
+        }}
+        visitsCount={myVisits.length}
       />
 
-      <div className="lg:pl-72 flex-1 flex flex-col">
-        <Header
-          currentRole="supervisor"
-          onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
-          onOpenSosModal={() => handleOpenSos()}
-        />
-
-        <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl w-full mx-auto space-y-8">
-          {/* Page Header */}
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-surface-container-lowest p-5 rounded-2xl shadow-xs border border-outline-variant/20">
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="px-2.5 py-0.5 rounded-full bg-secondary-container text-on-secondary-container text-[11px] font-bold uppercase tracking-wider">
-                  District Medical Officer Console
-                </span>
-                <span className="text-xs text-on-surface-variant font-medium">
-                  • Live Backend & ML Surveillance
-                </span>
-              </div>
-              <h1 className="text-2xl sm:text-3xl font-extrabold text-primary-container tracking-tight mt-1">
-                Maternal Health & High-Risk Surveillance
-              </h1>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2.5">
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".csv,.json"
-                onChange={handleDatasetFileImport}
-                className="hidden"
-              />
-              <button
-                type="button"
-                disabled={importing}
-                onClick={() => fileInputRef.current?.click()}
-                className="px-3.5 py-2 rounded-xl bg-surface-container-low hover:bg-surface-container text-on-surface text-xs font-bold border border-outline-variant/30 transition-all flex items-center gap-1.5"
-              >
-                <span className="material-symbols-outlined text-[16px] text-secondary">
-                  upload_file
-                </span>
-                <span>{importing ? 'Importing...' : 'Import Dataset (CSV/JSON)'}</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setRegisterModalOpen(true)}
-                className="px-3.5 py-2 rounded-xl bg-secondary text-on-secondary text-xs font-bold shadow-xs hover:bg-secondary/90 flex items-center gap-1.5"
-              >
-                <span className="material-symbols-outlined text-[16px]">person_add</span>
-                <span>+ Register Mother</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => handleOpenAnc()}
-                className="px-3.5 py-2 rounded-xl bg-primary-container text-on-primary text-xs font-bold shadow-xs hover:opacity-95 flex items-center gap-1.5"
-              >
-                <span className="material-symbols-outlined text-[16px]">medical_services</span>
-                <span>+ Record ANC Visit</span>
-              </button>
+      <main className="flex-1 p-8 max-w-5xl mx-auto w-full">
+        {/* ==================== ANALYSIS PROGRESS SCREEN ==================== */}
+        {isAnalyzing ? (
+          <div className="max-w-xl mx-auto mt-16 bg-white border border-slate-200 rounded-2xl p-8 shadow-xs text-center">
+            <div className="w-12 h-12 rounded-full border-4 border-teal-700 border-t-transparent animate-spin mx-auto mb-5" />
+            <h2 className="text-xl font-bold text-slate-900 mb-2">
+              Analyzing Your Checkup...
+            </h2>
+            <p className="text-sm text-slate-500 mb-6">
+              Evaluating your vitals and comparing with your past checkups
+            </p>
+            <div className="space-y-3 text-left text-sm">
+              {[
+                '1. Evaluating your blood pressure, blood sugar, temperature & heart rate...',
+                '2. Checking maternal safety thresholds...',
+                '3. Comparing blood pressure trend across your previous checkups...',
+                '4. Preparing your English & Hindi care guidance and voice advisory...',
+              ].map((label, idx) => (
+                <div
+                  key={label}
+                  className={`p-3 rounded-xl border ${
+                    analysisStep >= idx + 1
+                      ? 'bg-teal-50 border-teal-200 text-teal-900 font-medium'
+                      : 'bg-slate-50 border-slate-200 text-slate-400'
+                  }`}
+                >
+                  {label}
+                </div>
+              ))}
             </div>
           </div>
-
-          {/* 4 Live KPI Stat Cards */}
-          <section className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-            <StatCard
-              title="Total Registered Mothers"
-              value={String(mothers.length)}
-              trend={{
-                text: mothers.length > 0 ? 'Live Registry' : 'Unseeded',
-                positive: true,
-              }}
-              footerLeft="Synced with Firestore & ML Engine"
-              icon="pregnant_woman"
-              accentColor="secondary"
-            />
-            <StatCard
-              title="High-Risk Mothers (ML + MoHFW)"
-              value={String(highRiskMothers.length)}
-              trend={{
-                text:
-                  mothers.length > 0
-                    ? `${Math.round((highRiskMothers.length / mothers.length) * 100)}% of caseload`
-                    : '0%',
-                positive: false,
-              }}
-              footerLeft="Severe BP, Anemia, or Rising Trajectory"
-              icon="warning"
-              accentColor="error"
-            />
-            <StatCard
-              title="Moderate-Risk Follow-ups"
-              value={String(moderateRiskMothers.length)}
-              trend={{ text: 'Bi-weekly ANC', neutral: true }}
-              footerLeft="Borderline Vitals / Moderate Anemia"
-              icon="event_available"
-              accentColor="tertiary"
-            />
-            <StatCard
-              title="Active Villages Covered"
-              value={String(villageMap.size)}
-              trend={{ text: '24x7 Field Sync', positive: true }}
-              footerLeft="ASHA & PHC Connected Nodes"
-              icon="diversity_1"
-              accentColor="primary"
-            />
-          </section>
-
-          {/* Main Grid */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <div className="lg:col-span-2 space-y-6">
-              {/* High-Risk Escalation Feed */}
-              <section
-                id="high-risk"
-                className="bg-surface-container-lowest rounded-2xl p-5 sm:p-6 shadow-xs border border-outline-variant/20 space-y-4"
+        ) : activeTab === 'dashboard' ? (
+          /* ==================== VIEW 1: MOTHER'S DASHBOARD ==================== */
+          <div className="space-y-8">
+            <div className="flex flex-wrap items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-xs">
+              <div>
+                <h1 className="text-2xl font-bold text-slate-900">
+                  Hello, {user.name}
+                </h1>
+                <p className="text-sm text-slate-500 mt-0.5">
+                  Age {user.age} yrs
+                  {user.gestational_week ? ` • Pregnancy Week ${user.gestational_week}` : ''}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={handleOpenNewForm}
+                className="px-5 py-3 rounded-xl bg-teal-700 hover:bg-teal-800 text-white font-semibold text-sm shadow-xs transition cursor-pointer"
               >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2.5">
-                    <span className="w-3 h-3 rounded-full bg-error animate-ping" />
-                    <div>
-                      <h2 className="text-lg font-extrabold text-primary-container">
-                        Critical High-Risk Escalation Feed ({highRiskMothers.length})
-                      </h2>
-                      <p className="text-xs text-on-surface-variant">
-                        Flagged by 6-Feature Random Forest ML, MoHFW Red Flags & Trajectory Analyzer
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                {highRiskMothers.length === 0 ? (
-                  <div className="p-6 rounded-xl bg-surface-container-low text-center text-xs text-on-surface-variant">
-                    No high-risk mothers flagged yet. Register a mother, record an ANC visit, or import rows from your testing dataset.
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {highRiskMothers.map((mother) => (
-                      <div
-                        key={mother.id}
-                        className="p-4 rounded-xl bg-error-container/20 border border-error/25 flex flex-col justify-between gap-3"
-                      >
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="flex items-center gap-3">
-                            <div className="relative w-11 h-11 rounded-full overflow-hidden ring-2 ring-error shrink-0">
-                              <Image
-                                src={mother.avatarUrl}
-                                alt={mother.name}
-                                fill
-                                sizes="44px"
-                                unoptimized
-                                className="object-cover"
-                              />
-                            </div>
-                            <div>
-                              <div className="flex items-center gap-1.5">
-                                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-error text-on-error">
-                                  {mother.id}
-                                </span>
-                                <h3 className="text-sm font-extrabold text-on-surface">
-                                  {mother.name}
-                                </h3>
-                              </div>
-                              <p className="text-[11px] text-on-surface-variant font-medium">
-                                Age {mother.age} • Week {mother.gestationalWeek} (T{mother.trimester}) • {mother.village}
-                              </p>
-                            </div>
-                          </div>
-                          <RiskBadge level="HIGH" />
-                        </div>
-
-                        <div className="bg-surface-container-lowest p-3 rounded-lg border border-error/15 space-y-1.5">
-                          <div className="text-[10px] font-bold uppercase tracking-wider text-error flex items-center gap-1">
-                            <span className="material-symbols-outlined text-[14px]">psychology</span>
-                            <span>AI Risk Factors & Explainability</span>
-                          </div>
-                          <ul className="text-xs text-on-surface space-y-1 font-medium">
-                            {(mother.aiExplainability || [mother.riskReason]).map((reason, idx) => (
-                              <li key={idx} className="flex items-center gap-1.5">
-                                <span className="w-1.5 h-1.5 rounded-full bg-error shrink-0" />
-                                <span>{reason}</span>
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-
-                        <div className="flex items-center justify-between pt-1 text-xs gap-2">
-                          <button
-                            type="button"
-                            onClick={() => handleOpenProfile(mother)}
-                            className="px-3 py-1.5 rounded-lg bg-surface-container text-on-surface font-bold hover:bg-surface-container-high"
-                          >
-                            View Trajectory
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleOpenSos(mother)}
-                            className="px-3 py-1.5 rounded-lg bg-error text-on-error font-bold hover:bg-error/90 flex items-center gap-1 shadow-xs"
-                          >
-                            <span className="material-symbols-outlined text-[14px]">ambulance</span>
-                            <span>Dispatch 108 FRU</span>
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </section>
-
-              {/* Explainable AI Risk Table */}
-              <section
-                id="roster"
-                className="bg-surface-container-lowest rounded-2xl p-5 sm:p-6 shadow-xs border border-outline-variant/20 space-y-4"
-              >
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                  <div>
-                    <h2 className="text-lg font-extrabold text-primary-container">
-                      Maternal Registry & Explainable AI Triage ({filteredMothers.length})
-                    </h2>
-                    <p className="text-xs text-on-surface-variant">
-                      Live database records with 6-Feature ML & NHM clinical flags
-                    </p>
-                  </div>
-
-                  <div className="flex flex-wrap items-center gap-2">
-                    <div className="relative">
-                      <span className="material-symbols-outlined text-[18px] text-on-surface-variant absolute left-3 top-1/2 -translate-y-1/2">
-                        search
-                      </span>
-                      <input
-                        type="text"
-                        placeholder="Search name, ID, village..."
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        className="pl-9 pr-3 py-1.5 rounded-xl bg-surface-container-low border border-outline-variant/40 text-xs text-on-surface focus:outline-none focus:border-secondary"
-                      />
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={handleExportCsv}
-                      disabled={filteredMothers.length === 0}
-                      className="px-3 py-1.5 rounded-xl bg-surface-container-low hover:bg-surface-container text-on-surface text-xs font-bold border border-outline-variant/30 flex items-center gap-1 disabled:opacity-50"
-                    >
-                      <span className="material-symbols-outlined text-[15px]">download</span>
-                      <span>Export CSV</span>
-                    </button>
-                  </div>
-                </div>
-
-                {/* Risk Filter Pills */}
-                <div className="flex items-center gap-2 overflow-x-auto pb-1">
-                  {(['ALL', 'HIGH', 'MODERATE', 'LOW'] as const).map((lvl) => (
-                    <button
-                      key={lvl}
-                      type="button"
-                      onClick={() => setSelectedRiskFilter(lvl)}
-                      className={`px-3 py-1 rounded-full text-xs font-bold transition-all ${
-                        selectedRiskFilter === lvl
-                          ? 'bg-primary-container text-on-primary shadow-xs'
-                          : 'bg-surface-container-low text-on-surface-variant hover:bg-surface-container'
-                      }`}
-                    >
-                      {lvl === 'ALL' ? `All Mothers (${mothers.length})` : `${lvl} Risk`}
-                    </button>
-                  ))}
-                </div>
-
-                {isLoading ? (
-                  <p className="py-8 text-center text-xs text-on-surface-variant">
-                    Loading maternal registry from backend...
-                  </p>
-                ) : filteredMothers.length === 0 ? (
-                  <div className="py-10 text-center space-y-3 bg-surface-container-low rounded-xl p-6">
-                    <p className="text-sm font-bold text-on-surface">
-                      No mothers in registry yet.
-                    </p>
-                    <p className="text-xs text-on-surface-variant max-w-md mx-auto">
-                      Click &ldquo;+ Register Mother&rdquo; or &ldquo;Import Dataset (CSV/JSON)&rdquo; above to add mothers and evaluate them with the 3-layer ML + MoHFW Risk Engine.
-                    </p>
-                  </div>
-                ) : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left border-collapse">
-                      <thead>
-                        <tr className="border-b border-outline-variant/30 text-[11px] font-bold uppercase text-on-surface-variant tracking-wider">
-                          <th className="py-3 px-3">Mother / ID</th>
-                          <th className="py-3 px-3">Gestation</th>
-                          <th className="py-3 px-3">Vitals (BP / Hb / BS)</th>
-                          <th className="py-3 px-3">Risk Level</th>
-                          <th className="py-3 px-3">AI Explainability</th>
-                          <th className="py-3 px-3 text-right">Actions</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-outline-variant/15 text-xs">
-                        {filteredMothers.map((mother) => (
-                          <tr
-                            key={mother.id}
-                            className="hover:bg-surface-container-low/60 transition-colors"
-                          >
-                            <td className="py-3.5 px-3">
-                              <div className="font-bold text-on-surface">{mother.name}</div>
-                              <div className="text-[11px] text-on-surface-variant">
-                                {mother.id} • Age {mother.age} • {mother.village}
-                              </div>
-                            </td>
-                            <td className="py-3.5 px-3 font-semibold">
-                              W{mother.gestationalWeek} (T{mother.trimester})
-                            </td>
-                            <td className="py-3.5 px-3">
-                              <div className="font-bold text-on-surface">
-                                BP: {mother.bloodPressure}
-                              </div>
-                              <div className="text-[11px] text-on-surface-variant">
-                                Hb: {mother.hemoglobin} g/dL • BS: {mother.bloodSugar ?? 5.2} mmol/L
-                              </div>
-                            </td>
-                            <td className="py-3.5 px-3">
-                              <RiskBadge level={mother.riskLevel} />
-                            </td>
-                            <td className="py-3.5 px-3 max-w-xs">
-                              <div className="flex flex-wrap gap-1">
-                                {(mother.aiExplainability || [mother.riskReason]).map((f, i) => (
-                                  <span
-                                    key={i}
-                                    className="text-[11px] px-2 py-0.5 rounded bg-surface-container text-on-surface font-medium"
-                                  >
-                                    {f}
-                                  </span>
-                                ))}
-                              </div>
-                            </td>
-                            <td className="py-3.5 px-3 text-right space-x-2">
-                              <button
-                                type="button"
-                                onClick={() => handleOpenAnc(mother)}
-                                className="text-xs font-bold text-primary-container hover:underline"
-                              >
-                                + Visit
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleOpenProfile(mother)}
-                                className="text-xs font-bold text-secondary hover:underline"
-                              >
-                                Review Case →
-                              </button>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </section>
+                + New Checkup
+              </button>
             </div>
 
-            {/* Right Column: Emergency Dispatch & Live Analytics */}
-            <div className="space-y-6" id="analytics">
-              <div className="rounded-2xl bg-gradient-to-br from-primary-container to-primary text-on-primary p-5 shadow-lg space-y-4">
-                <div className="flex items-center justify-between">
-                  <span className="px-2.5 py-0.5 rounded-full bg-error text-on-error text-[10px] font-extrabold uppercase tracking-wider">
-                    108 Emergency Dispatch
+            {/* Mother's Personal Summary Cards (Purely from Backend DB) */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="bg-white p-5 rounded-2xl border border-slate-200">
+                <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                  Current Risk Status
+                </p>
+                <div className="mt-2.5">
+                  <span
+                    className={`inline-block text-sm font-bold px-3 py-1 rounded-full border ${badgeStyle(
+                      currentRisk
+                    )}`}
+                  >
+                    {currentRisk}
                   </span>
-                  <span className="material-symbols-outlined text-secondary-fixed">
-                    emergency_share
-                  </span>
+                </div>
+              </div>
+
+              <div className="bg-white p-5 rounded-2xl border border-slate-200">
+                <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                  My Recorded Checkups
+                </p>
+                <p className="text-3xl font-bold text-slate-900 mt-2">{myVisits.length}</p>
+              </div>
+
+              <div className="bg-white p-5 rounded-2xl border border-slate-200">
+                <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                  Latest Blood Pressure
+                </p>
+                <p className="text-2xl font-bold text-slate-900 mt-2 font-mono">
+                  {latestVisit
+                    ? `${latestVisit.vitals.systolic}/${latestVisit.vitals.diastolic} mmHg`
+                    : 'Not recorded'}
+                </p>
+              </div>
+
+              <div className="bg-white p-5 rounded-2xl border border-slate-200">
+                <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                  BP Trend Status
+                </p>
+                <p
+                  className={`text-sm font-bold mt-2.5 ${
+                    latestVisit?.trend_flag ? 'text-amber-700' : 'text-slate-700'
+                  }`}
+                >
+                  {latestVisit?.trend_flag === 'bp_rising_3_visits'
+                    ? 'Rising across 3 checkups'
+                    : myVisits.length > 0
+                    ? 'Stable / Normal'
+                    : 'Awaiting first checkup'}
+                </p>
+              </div>
+            </div>
+
+            {/* Latest Hindi & English Health Advisory if she has at least 1 checkup */}
+            {latestVisit && (
+              <div className="bg-white rounded-2xl border border-slate-200 p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <h2 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">
+                    Latest Health Summary (English)
+                  </h2>
+                  <p className="text-sm text-slate-800 leading-relaxed">
+                    {latestVisit.english_summary}
+                  </p>
                 </div>
                 <div>
-                  <h3 className="text-base font-extrabold">
-                    Instant FRU Ambulance Referral
-                  </h3>
-                  <p className="text-xs text-primary-fixed/80 mt-1">
-                    Connects high-risk mothers directly with 108 ALS ambulance and Civil Hospital Ob-Gyn Unit.
+                  <h2 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">
+                    आपकी नवीनतम स्वास्थ्य सलाह (Hindi)
+                  </h2>
+                  <p className="text-sm text-slate-800 leading-relaxed">
+                    {latestVisit.hindi_text}
                   </p>
+                  <HindiAudioPlayer
+                    text={latestVisit.hindi_text}
+                    initialAudioBase64={latestVisit.audio_base64}
+                    title="आवाज में सलाह सुनें"
+                  />
                 </div>
+              </div>
+            )}
+
+            {/* Mother's Recent Checkups Table Below Dashboard */}
+            <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+              <div className="p-5 border-b border-slate-200 flex items-center justify-between">
+                <h2 className="text-base font-bold text-slate-900">
+                  My Checkup History
+                </h2>
+                {myVisits.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('history')}
+                    className="text-xs font-semibold text-teal-700 hover:underline cursor-pointer"
+                  >
+                    View All ({myVisits.length})
+                  </button>
+                )}
+              </div>
+
+              {loadingData ? (
+                <div className="p-8 text-center text-sm text-slate-500">
+                  Loading your checkup records...
+                </div>
+              ) : myVisits.length === 0 ? (
+                <div className="p-10 text-center">
+                  <p className="text-sm text-slate-600 mb-4">
+                    You have not recorded any checkup readings yet.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={handleOpenNewForm}
+                    className="px-4 py-2.5 rounded-xl bg-teal-700 text-white text-xs font-semibold hover:bg-teal-800 transition cursor-pointer"
+                  >
+                    + Enter Your First Checkup Readings
+                  </button>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse text-sm">
+                    <thead>
+                      <tr className="bg-slate-50 border-b border-slate-200 text-xs uppercase text-slate-500">
+                        <th className="py-3 px-4">Date & Time</th>
+                        <th className="py-3 px-4">My Vitals (BP / BS / Temp / HR)</th>
+                        <th className="py-3 px-4">Risk Level</th>
+                        <th className="py-3 px-4">Key Driving Factors</th>
+                        <th className="py-3 px-4">Flags / Trend</th>
+                        <th className="py-3 px-4 text-right">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-200">
+                      {myVisits.slice(0, 8).map((v) => (
+                        <tr key={v.visit_id} className="hover:bg-slate-50">
+                          <td className="py-3.5 px-4 text-xs text-slate-600">
+                            {new Date(v.timestamp).toLocaleString()}
+                          </td>
+                          <td className="py-3.5 px-4 font-mono text-xs text-slate-700">
+                            BP {v.vitals.systolic}/{v.vitals.diastolic} mmHg • BS{' '}
+                            {v.vitals.blood_sugar_mmol} mmol/L • {v.vitals.body_temp_f}°F •{' '}
+                            {v.vitals.heart_rate} bpm
+                          </td>
+                          <td className="py-3.5 px-4">
+                            <span
+                              className={`inline-block text-xs font-bold px-2.5 py-1 rounded-full border ${badgeStyle(
+                                v.frontend_risk_level
+                              )}`}
+                            >
+                              {v.frontend_risk_level}
+                            </span>
+                          </td>
+                          <td className="py-3.5 px-4 text-xs text-slate-700 font-medium">
+                            {v.top_factors.join(', ')}
+                          </td>
+                          <td className="py-3.5 px-4 text-xs text-slate-600">
+                            {[
+                              ...(v.rule_flags || []),
+                              ...(v.trend_flag ? [v.trend_flag] : []),
+                            ].join(', ') || 'Normal'}
+                          </td>
+                          <td className="py-3.5 px-4 text-right">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setActiveResult(v);
+                                setActiveTab('result');
+                              }}
+                              className="px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-teal-700 hover:text-white text-xs font-semibold text-slate-700 transition cursor-pointer"
+                            >
+                              View Result
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        ) : activeTab === 'new-form' ? (
+          /* ==================== VIEW 2: NEW CHECKUP FORM (ZERO REDUNDANT FIELDS) ==================== */
+          <div className="max-w-2xl mx-auto bg-white rounded-2xl border border-slate-200 p-8 shadow-xs">
+            <div className="mb-6 pb-4 border-b border-slate-200 flex items-center justify-between">
+              <div>
+                <h1 className="text-xl font-bold text-slate-900">
+                  New Checkup Readings
+                </h1>
+                <p className="text-xs text-slate-500 mt-1">
+                  Recording vitals for <strong>{user.name}</strong> (Age {user.age} yrs
+                  {user.gestational_week ? `, Week ${user.gestational_week}` : ''})
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveTab('dashboard')}
+                className="text-xs font-semibold text-slate-500 hover:text-slate-800 cursor-pointer"
+              >
+                Cancel
+              </button>
+            </div>
+
+            {formError && (
+              <div className="mb-6 p-3.5 rounded-xl bg-red-50 border border-red-200 text-xs font-semibold text-red-700">
+                {formError}
+              </div>
+            )}
+
+            <form onSubmit={handleSubmitAssessment} className="space-y-6">
+              {/* Only Vitals That Change Per Checkup — No Redundant Name/Age/Phone Fields */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Systolic BP (Upper, mmHg) *
+                  </label>
+                  <input
+                    type="number"
+                    required
+                    min={70}
+                    max={220}
+                    value={systolic}
+                    onChange={(e) => setSystolic(e.target.value)}
+                    placeholder="70 – 220 mmHg"
+                    className="w-full px-3.5 py-2.5 text-sm rounded-xl border border-slate-300"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Diastolic BP (Lower, mmHg) *
+                  </label>
+                  <input
+                    type="number"
+                    required
+                    min={40}
+                    max={150}
+                    value={diastolic}
+                    onChange={(e) => setDiastolic(e.target.value)}
+                    placeholder="40 – 150 mmHg"
+                    className="w-full px-3.5 py-2.5 text-sm rounded-xl border border-slate-300"
+                  />
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-xs font-semibold text-slate-700">
+                      Blood Sugar (BS) *
+                    </label>
+                    <select
+                      value={bsUnit}
+                      onChange={(e) => setBsUnit(e.target.value as 'mmol' | 'mgdl')}
+                      className="text-xs border border-slate-300 rounded-md px-1.5 py-0.5 bg-slate-50"
+                    >
+                      <option value="mmol">mmol/L</option>
+                      <option value="mgdl">mg/dL</option>
+                    </select>
+                  </div>
+                  <input
+                    type="number"
+                    step="0.1"
+                    required
+                    value={bloodSugar}
+                    onChange={(e) => setBloodSugar(e.target.value)}
+                    placeholder={
+                      bsUnit === 'mmol'
+                        ? 'Enter in mmol/L (2.0 – 35.0)'
+                        : 'Enter in mg/dL (40 – 500)'
+                    }
+                    className="w-full px-3.5 py-2.5 text-sm rounded-xl border border-slate-300"
+                  />
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-xs font-semibold text-slate-700">
+                      Body Temperature *
+                    </label>
+                    <select
+                      value={tempUnit}
+                      onChange={(e) => setTempUnit(e.target.value as 'F' | 'C')}
+                      className="text-xs border border-slate-300 rounded-md px-1.5 py-0.5 bg-slate-50"
+                    >
+                      <option value="F">°F</option>
+                      <option value="C">°C</option>
+                    </select>
+                  </div>
+                  <input
+                    type="number"
+                    step="0.1"
+                    required
+                    value={bodyTemp}
+                    onChange={(e) => setBodyTemp(e.target.value)}
+                    placeholder={
+                      tempUnit === 'F'
+                        ? 'Enter in °F (95.0 – 106.0)'
+                        : 'Enter in °C (35.0 – 41.0)'
+                    }
+                    className="w-full px-3.5 py-2.5 text-sm rounded-xl border border-slate-300"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Heart Rate (Pulse, bpm) *
+                  </label>
+                  <input
+                    type="number"
+                    required
+                    min={40}
+                    max={200}
+                    value={heartRate}
+                    onChange={(e) => setHeartRate(e.target.value)}
+                    placeholder="40 – 200 bpm"
+                    className="w-full px-3.5 py-2.5 text-sm rounded-xl border border-slate-300"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Hemoglobin g/dL (Optional)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    min={3}
+                    max={20}
+                    value={hemoglobin}
+                    onChange={(e) => setHemoglobin(e.target.value)}
+                    placeholder="Optional (if tested today)"
+                    className="w-full px-3.5 py-2.5 text-sm rounded-xl border border-slate-300"
+                  />
+                </div>
+              </div>
+
+              {/* Optional Danger Symptoms & Notes */}
+              <div className="space-y-3 pt-4 border-t border-slate-200">
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                  Are you experiencing any of these symptoms today? (Optional)
+                </label>
+                <div className="flex flex-wrap gap-2">
+                  {SYMPTOM_OPTIONS.map((sym) => {
+                    const checked = selectedSymptoms.includes(sym);
+                    return (
+                      <button
+                        key={sym}
+                        type="button"
+                        onClick={() =>
+                          setSelectedSymptoms((prev) =>
+                            checked ? prev.filter((s) => s !== sym) : [...prev, sym]
+                          )
+                        }
+                        className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition cursor-pointer ${
+                          checked
+                            ? 'bg-red-50 border-red-300 text-red-800'
+                            : 'bg-white border-slate-300 text-slate-600 hover:bg-slate-50'
+                        }`}
+                      >
+                        {checked ? '✓ ' : '+ '}
+                        {sym}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div className="pt-2">
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Notes (Optional)
+                  </label>
+                  <input
+                    type="text"
+                    value={remarks}
+                    onChange={(e) => setRemarks(e.target.value)}
+                    placeholder="How are you feeling today?"
+                    className="w-full px-3.5 py-2 text-sm rounded-xl border border-slate-300"
+                  />
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                className="w-full py-3.5 rounded-xl bg-teal-700 hover:bg-teal-800 text-white font-semibold text-sm shadow-xs transition cursor-pointer"
+              >
+                Analyze My Checkup →
+              </button>
+            </form>
+          </div>
+        ) : activeTab === 'result' && activeResult ? (
+          /* ==================== VIEW 3: CHECKUP RESULT ==================== */
+          <div className="space-y-6">
+            <div className="bg-white rounded-2xl border border-slate-200 p-6 flex flex-wrap items-center justify-between gap-4">
+              <div>
+                <div className="flex items-center gap-3">
+                  <span
+                    className={`px-3.5 py-1 rounded-full text-xs font-bold border ${badgeStyle(
+                      activeResult.frontend_risk_level
+                    )}`}
+                  >
+                    {activeResult.frontend_risk_level} RISK
+                  </span>
+                </div>
+                <h1 className="text-2xl font-bold text-slate-900 mt-2">
+                  Your Checkup Result
+                </h1>
+                <p className="text-xs text-slate-500">
+                  Checked on {new Date(activeResult.timestamp).toLocaleString()}
+                </p>
+              </div>
+
+              <div className="flex gap-3">
                 <button
                   type="button"
-                  onClick={() => handleOpenSos()}
-                  className="w-full py-2.5 rounded-xl bg-tertiary-fixed text-on-tertiary-fixed text-xs font-extrabold shadow-md hover:opacity-95 transition-all"
+                  onClick={handleOpenNewForm}
+                  className="px-4 py-2.5 rounded-xl bg-teal-700 hover:bg-teal-800 text-white text-xs font-semibold transition cursor-pointer"
                 >
-                  Trigger 108 Ambulance Now
+                  + New Checkup
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('dashboard')}
+                  className="px-4 py-2.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-700 transition cursor-pointer"
+                >
+                  Back to My Dashboard
                 </button>
               </div>
+            </div>
 
-              {/* Dynamic Trimester Breakdown */}
-              <div className="bg-surface-container-lowest rounded-2xl p-5 shadow-xs border border-outline-variant/20 space-y-4">
-                <h3 className="text-sm font-extrabold text-primary-container uppercase tracking-wider">
-                  Cohort Trimester Distribution ({totalCount})
-                </h3>
-                <div className="space-y-3 text-xs">
-                  <div>
-                    <div className="flex justify-between font-bold mb-1">
-                      <span>1st Trimester (Weeks 1–12)</span>
-                      <span className="text-secondary">{t1Count} ({t1Pct}%)</span>
-                    </div>
-                    <div className="w-full h-2.5 bg-surface-container rounded-full overflow-hidden">
-                      <div className="h-full bg-secondary rounded-full" style={{ width: `${t1Pct}%` }} />
-                    </div>
+            {/* Recorded Vitals + Risk Breakdown + Key Vitals */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              <div className="bg-white rounded-2xl border border-slate-200 p-6 space-y-3">
+                <h2 className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                  Your Readings Today
+                </h2>
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div className="p-3 rounded-xl bg-slate-50">
+                    <p className="text-xs text-slate-500">Blood Pressure</p>
+                    <p className="font-bold text-slate-900">
+                      {activeResult.vitals.systolic}/{activeResult.vitals.diastolic} mmHg
+                    </p>
                   </div>
-                  <div>
-                    <div className="flex justify-between font-bold mb-1">
-                      <span>2nd Trimester (Weeks 13–26)</span>
-                      <span className="text-primary-container">{t2Count} ({t2Pct}%)</span>
-                    </div>
-                    <div className="w-full h-2.5 bg-surface-container rounded-full overflow-hidden">
-                      <div className="h-full bg-primary-container rounded-full" style={{ width: `${t2Pct}%` }} />
-                    </div>
+                  <div className="p-3 rounded-xl bg-slate-50">
+                    <p className="text-xs text-slate-500">Blood Sugar</p>
+                    <p className="font-bold text-slate-900">
+                      {activeResult.vitals.blood_sugar_mmol} mmol/L
+                    </p>
                   </div>
-                  <div>
-                    <div className="flex justify-between font-bold mb-1">
-                      <span>3rd Trimester (Weeks 27–40)</span>
-                      <span className="text-tertiary">{t3Count} ({t3Pct}%)</span>
-                    </div>
-                    <div className="w-full h-2.5 bg-surface-container rounded-full overflow-hidden">
-                      <div className="h-full bg-tertiary rounded-full" style={{ width: `${t3Pct}%` }} />
-                    </div>
+                  <div className="p-3 rounded-xl bg-slate-50">
+                    <p className="text-xs text-slate-500">Body Temp</p>
+                    <p className="font-bold text-slate-900">
+                      {activeResult.vitals.body_temp_f} °F
+                    </p>
+                  </div>
+                  <div className="p-3 rounded-xl bg-slate-50">
+                    <p className="text-xs text-slate-500">Heart Rate</p>
+                    <p className="font-bold text-slate-900">
+                      {activeResult.vitals.heart_rate} bpm
+                    </p>
                   </div>
                 </div>
               </div>
 
-              {/* Dynamic Village Caseload */}
-              <div className="bg-surface-container-lowest rounded-2xl p-5 shadow-xs border border-outline-variant/20 space-y-4">
-                <h3 className="text-sm font-extrabold text-primary-container uppercase tracking-wider">
-                  Village Caseload Breakdown
-                </h3>
-                {villageMap.size === 0 ? (
-                  <p className="text-xs text-on-surface-variant">
-                    No village data yet. Register or import mothers to view village distribution.
-                  </p>
-                ) : (
-                  <div className="space-y-3">
-                    {Array.from(villageMap.entries()).map(([vName, stats]) => (
-                      <div
-                        key={vName}
-                        className="p-3 rounded-xl bg-surface-container-low space-y-1.5"
-                      >
-                        <div className="flex items-center justify-between text-xs">
-                          <span className="font-bold text-on-surface">{vName}</span>
-                          <span className="font-extrabold text-error">
-                            {stats.highRisk} High-Risk / {stats.total} Total
-                          </span>
-                        </div>
+              {/* Risk Confidence Breakdown */}
+              <div className="bg-white rounded-2xl border border-slate-200 p-6 space-y-4">
+                <h2 className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                  Risk Assessment Breakdown
+                </h2>
+                {(['high', 'mid', 'low'] as const).map((cls) => {
+                  const pct = Math.round((activeResult.probabilities?.[cls] || 0) * 100);
+                  const barColor =
+                    cls === 'high'
+                      ? 'bg-red-600'
+                      : cls === 'mid'
+                      ? 'bg-amber-500'
+                      : 'bg-emerald-600';
+                  return (
+                    <div key={cls}>
+                      <div className="flex justify-between text-xs font-semibold mb-1">
+                        <span className="uppercase">
+                          {cls === 'mid' ? 'Moderate' : cls} Risk
+                        </span>
+                        <span>{pct}%</span>
                       </div>
+                      <div className="w-full h-2.5 bg-slate-100 rounded-full overflow-hidden">
+                        <div className={`h-full ${barColor}`} style={{ width: `${pct}%` }} />
+                      </div>
+                    </div>
+                  );
+                })}
+                <div className="pt-2 border-t border-slate-100">
+                  <p className="text-xs text-slate-500">Key Vitals Influencing Result:</p>
+                  <div className="flex gap-2 mt-1.5">
+                    {activeResult.top_factors.map((f) => (
+                      <span
+                        key={f}
+                        className="px-2.5 py-1 rounded-lg bg-teal-50 border border-teal-200 text-xs font-bold text-teal-800"
+                      >
+                        {f}
+                      </span>
                     ))}
                   </div>
-                )}
+                </div>
+              </div>
+
+              {/* Safety Alerts & Blood Pressure Trend */}
+              <div className="bg-white rounded-2xl border border-slate-200 p-6 space-y-4">
+                <h2 className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                  Health Alerts & BP Trend
+                </h2>
+                <div>
+                  <p className="text-xs font-semibold text-slate-600 mb-1.5">
+                    Vital Threshold Checks:
+                  </p>
+                  {activeResult.rule_flags.length === 0 ? (
+                    <p className="text-xs text-emerald-700 font-medium">
+                      All readings are within normal thresholds.
+                    </p>
+                  ) : (
+                    <div className="flex flex-wrap gap-1.5">
+                      {activeResult.rule_flags.map((flag) => (
+                        <span
+                          key={flag}
+                          className="px-2.5 py-1 rounded-lg bg-red-50 border border-red-200 text-xs font-semibold text-red-700"
+                        >
+                          {flag.replace(/_/g, ' ')}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="pt-3 border-t border-slate-100">
+                  <p className="text-xs font-semibold text-slate-600 mb-1">
+                    Blood Pressure Trend:
+                  </p>
+                  <p className="text-xs text-slate-700">{activeResult.trend_summary}</p>
+                  {activeResult.trend_flag && (
+                    <span className="inline-block mt-2 px-2.5 py-1 rounded-lg bg-amber-50 border border-amber-200 text-xs font-bold text-amber-800">
+                      Rising BP across your last 3 checkups
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Bilingual Clinical Advisory & Hindi Audio */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="bg-white rounded-2xl border border-slate-200 p-6 space-y-3">
+                <h2 className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                  Recommended Care & Next Steps (English)
+                </h2>
+                <p className="text-sm text-slate-800 leading-relaxed">
+                  {activeResult.english_summary}
+                </p>
+                <ul className="list-disc list-inside text-xs text-slate-700 space-y-1 pt-2">
+                  {activeResult.action_items_en.map((item, i) => (
+                    <li key={i}>{item}</li>
+                  ))}
+                </ul>
+              </div>
+
+              <div className="bg-white rounded-2xl border border-slate-200 p-6 space-y-3">
+                <h2 className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                  आपकी स्वास्थ्य सलाह और ऑडियो (Hindi)
+                </h2>
+                <p className="text-sm text-slate-800 leading-relaxed">
+                  {activeResult.hindi_text}
+                </p>
+                <ul className="list-disc list-inside text-xs text-slate-700 space-y-1 pt-1">
+                  {activeResult.action_items_hi.map((item, i) => (
+                    <li key={i}>{item}</li>
+                  ))}
+                </ul>
+                <HindiAudioPlayer
+                  text={activeResult.hindi_text}
+                  initialAudioBase64={activeResult.audio_base64}
+                  title="आज की जांच सलाह (Hindi Audio)"
+                />
               </div>
             </div>
           </div>
-        </main>
-      </div>
+        ) : (
+          /* ==================== VIEW 4: MY CHECKUP HISTORY (LEFT SIDEBAR) ==================== */
+          <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+            <div className="p-6 border-b border-slate-200 flex items-center justify-between">
+              <div>
+                <h1 className="text-xl font-bold text-slate-900">My Checkup History</h1>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  All past checkups recorded for {user.name} (Age {user.age})
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={handleOpenNewForm}
+                className="px-4 py-2.5 rounded-xl bg-teal-700 text-white text-xs font-semibold hover:bg-teal-800 transition cursor-pointer"
+              >
+                + New Checkup Form
+              </button>
+            </div>
 
-      <EmergencySosModal
-        isOpen={sosModalOpen}
-        onClose={() => setSosModalOpen(false)}
-        initialMother={selectedMother}
-      />
-      <RegisterMotherModal
-        isOpen={registerModalOpen}
-        onClose={() => setRegisterModalOpen(false)}
-      />
-      <RecordAncVisitModal
-        isOpen={ancModalOpen}
-        onClose={() => setAncModalOpen(false)}
-        initialMother={selectedMother}
-      />
-      <MotherProfileModal
-        isOpen={profileModalOpen}
-        onClose={() => setProfileModalOpen(false)}
-        mother={selectedMother}
-        onOpenAncModal={(m) => handleOpenAnc(m)}
-        onOpenSosModal={(m) => handleOpenSos(m)}
-      />
+            {myVisits.length === 0 ? (
+              <div className="p-10 text-center text-sm text-slate-500">
+                No checkups recorded yet. Click &ldquo;+ New Checkup Form&rdquo; to evaluate your first checkup.
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse text-sm">
+                  <thead>
+                    <tr className="bg-slate-50 border-b border-slate-200 text-xs uppercase text-slate-500">
+                      <th className="py-3 px-4">Date & Time</th>
+                      <th className="py-3 px-4">Readings (BP / BS / Temp / HR)</th>
+                      <th className="py-3 px-4">Risk & Probabilities</th>
+                      <th className="py-3 px-4">Top Factors & Flags</th>
+                      <th className="py-3 px-4 text-right">Details</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200">
+                    {myVisits.map((v) => (
+                      <tr key={v.visit_id} className="hover:bg-slate-50">
+                        <td className="py-3.5 px-4 text-xs text-slate-600">
+                          {new Date(v.timestamp).toLocaleString()}
+                        </td>
+                        <td className="py-3.5 px-4 font-mono text-xs text-slate-700">
+                          BP {v.vitals.systolic}/{v.vitals.diastolic} • BS{' '}
+                          {v.vitals.blood_sugar_mmol} • {v.vitals.body_temp_f}°F • HR{' '}
+                          {v.vitals.heart_rate}
+                        </td>
+                        <td className="py-3.5 px-4">
+                          <span
+                            className={`inline-block text-xs font-bold px-2.5 py-0.5 rounded-full border ${badgeStyle(
+                              v.frontend_risk_level
+                            )}`}
+                          >
+                            {v.frontend_risk_level}
+                          </span>
+                          <span className="block text-[11px] text-slate-500 mt-1">
+                            H: {Math.round((v.probabilities?.high || 0) * 100)}% • M:{' '}
+                            {Math.round((v.probabilities?.mid || 0) * 100)}% • L:{' '}
+                            {Math.round((v.probabilities?.low || 0) * 100)}%
+                          </span>
+                        </td>
+                        <td className="py-3.5 px-4 text-xs text-slate-700">
+                          <div>Factors: {v.top_factors.join(', ')}</div>
+                          {(v.rule_flags.length > 0 || v.trend_flag) && (
+                            <div className="text-red-700 font-medium mt-0.5">
+                              {[...v.rule_flags, ...(v.trend_flag ? [v.trend_flag] : [])].join(
+                                ', '
+                              )}
+                            </div>
+                          )}
+                        </td>
+                        <td className="py-3.5 px-4 text-right">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setActiveResult(v);
+                              setActiveTab('result');
+                            }}
+                            className="px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-teal-700 hover:text-white text-xs font-semibold text-slate-700 transition cursor-pointer"
+                          >
+                            Open Result
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+      </main>
     </div>
   );
 }

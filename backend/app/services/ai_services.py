@@ -49,11 +49,13 @@ def generate_bilingual_explanation(
     if client is not None:
         try:
             from google.genai import types
+            hb_str = f"{vitals.hemoglobin} g/dL" if vitals.hemoglobin is not None else "Not recorded"
+            wt_str = f"{vitals.weight_kg} kg" if vitals.weight_kg is not None else "Not recorded"
             prompt = f"""
 You are a Clinical Decision Support AI assisting a rural Indian ASHA health worker under National Health Mission (MoHFW) guidelines.
 Analyze this pregnant mother's ANC checkup:
 - Age: {age} years
-- Vitals: BP {vitals.systolic}/{vitals.diastolic} mmHg, Hemoglobin {vitals.hemoglobin} g/dL, Weight {vitals.weight_kg} kg, Fetal Heart Rate {vitals.fetal_heart_rate} bpm, Fetal Movement {vitals.fetal_movement}, Blood Sugar {vitals.blood_sugar_mmol} mmol/L, Body Temp {vitals.body_temp_f} °F, Maternal Heart Rate {vitals.heart_rate} bpm
+- Vitals: BP {vitals.systolic}/{vitals.diastolic} mmHg, Blood Sugar {vitals.blood_sugar_mmol} mmol/L, Body Temp {vitals.body_temp_f} °F, Heart Rate {vitals.heart_rate} bpm (Hemoglobin: {hb_str}, Weight: {wt_str})
 - Symptoms: {', '.join(symptoms) if symptoms else 'None'}
 - Final Triage Risk Level: {combined_risk.frontend_risk_level} (Urgency: {combined_risk.urgency_score})
 - Triggered Clinical Flags: {combined_risk.clinical_output.triggered_flags}
@@ -91,8 +93,9 @@ Return ONLY valid JSON with keys:
         f"Key clinical findings: {flags_str}. {combined_risk.trend_output.trend_summary} "
         f"{action_items_en[0]}"
     )
+    hb_part = f" और हीमोग्लोबिन {vitals.hemoglobin} ग्राम" if vitals.hemoglobin is not None else ""
     hindi_text = (
-        f"नमस्ते बहनजी, आज की जांच में आपका ब्लड प्रेशर {vitals.systolic}/{vitals.diastolic} और हीमोग्लोबिन {vitals.hemoglobin or 11.0} ग्राम है। "
+        f"नमस्ते बहनजी, आज की जांच में आपका ब्लड प्रेशर {vitals.systolic}/{vitals.diastolic} mmHg{hb_part} दर्ज किया गया है। "
         f"{' '.join(action_items_hi[:2])}"
     )
     return {
@@ -105,50 +108,46 @@ Return ONLY valid JSON with keys:
 
 def synthesize_hindi_speech(hindi_text: str) -> str:
     """
-    Synthesizes Hindi audio (base64 MP3) using gemini-3.8-flash Native Audio output,
-    with fallback to Google Cloud TTS (hi-IN-Neural2-A) and offline mock MP3 frame.
+    Synthesizes natural, high-quality Hindi speech (base64 MP3).
+    Uses gTTS (Google Translate TTS for Hindi) with fallbacks to Cloud TTS & Gemini.
     """
-    client = _get_genai_client()
-    if client is not None:
-        try:
-            from google.genai import types
-            response = client.models.generate_content(
-                model=GEMINI_TTS_MODEL,
-                contents=f"Read this maternal health advisory warmly and clearly in Hindi: {hindi_text}",
-                config=types.GenerateContentConfig(
-                    response_modalities=["AUDIO"],
-                ),
-            )
-            for candidate in getattr(response, "candidates", []):
-                for part in getattr(candidate.content, "parts", []):
-                    inline_data = getattr(part, "inline_data", None)
-                    if inline_data and getattr(inline_data, "data", None):
-                        raw_bytes = inline_data.data
-                        if isinstance(raw_bytes, bytes):
-                            return base64.b64encode(raw_bytes).decode("utf-8")
-                        if isinstance(raw_bytes, str):
-                            return raw_bytes
-        except Exception as exc:
-            logger.warning("Gemini 3.8 Flash native TTS fallback to Cloud TTS: %s", exc)
+    if not hindi_text or not hindi_text.strip():
+        return ""
 
-        try:
-            from google.cloud import texttospeech
-            tts_client = texttospeech.TextToSpeechClient()
-            synthesis_input = texttospeech.SynthesisInput(text=hindi_text)
-            voice = texttospeech.VoiceSelectionParams(
-                language_code="hi-IN",
-                name="hi-IN-Neural2-A",
-            )
-            audio_config = texttospeech.AudioConfig(
-                audio_encoding=texttospeech.AudioEncoding.MP3,
-                speaking_rate=0.95,
-            )
-            tts_response = tts_client.synthesize_speech(
-                input=synthesis_input, voice=voice, audio_config=audio_config
-            )
-            return base64.b64encode(tts_response.audio_content).decode("utf-8")
-        except Exception as exc:
-            logger.warning("Cloud TTS fallback to mock audio frame: %s", exc)
+    # 1. Primary: gTTS (Google Translate Text-to-Speech in Hindi) — reliable, fast, genuine Hindi voice
+    try:
+        from gtts import gTTS
+        import io
+        clean_text = hindi_text.strip()
+        tts = gTTS(text=clean_text, lang="hi", slow=False)
+        fp = io.BytesIO()
+        tts.write_to_fp(fp)
+        fp.seek(0)
+        audio_bytes = fp.read()
+        if len(audio_bytes) > 500:
+            return base64.b64encode(audio_bytes).decode("utf-8")
+    except Exception as exc:
+        logger.warning("gTTS synthesis fallback triggered: %s", exc)
+
+    # 2. Secondary: Google Cloud Text-to-Speech API
+    try:
+        from google.cloud import texttospeech
+        tts_client = texttospeech.TextToSpeechClient()
+        synthesis_input = texttospeech.SynthesisInput(text=hindi_text)
+        voice = texttospeech.VoiceSelectionParams(
+            language_code="hi-IN",
+            name="hi-IN-Neural2-A",
+        )
+        audio_config = texttospeech.AudioConfig(
+            audio_encoding=texttospeech.AudioEncoding.MP3,
+            speaking_rate=0.95,
+        )
+        tts_response = tts_client.synthesize_speech(
+            input=synthesis_input, voice=voice, audio_config=audio_config
+        )
+        return base64.b64encode(tts_response.audio_content).decode("utf-8")
+    except Exception as exc:
+        logger.warning("Cloud TTS fallback triggered: %s", exc)
 
     return MOCK_MP3_BASE64
 
