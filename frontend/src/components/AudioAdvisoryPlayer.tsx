@@ -1,141 +1,185 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { synthesizeHindiTts } from '@/lib/api';
 
 interface AudioAdvisoryPlayerProps {
-  senderName?: string;
-  timestamp?: string;
-  hindiMessage: string;
-  englishTranslation: string;
-  onScheduleReminder?: () => void;
+  motherName?: string;
+  hindiAdvisory?: string;
+  englishTranslation?: string;
+  doctorName?: string;
+  recordedAt?: string;
+  audioBase64?: string;
 }
 
+const MOCK_FRAME_PREFIX = '//uQxAAAAAAAAAAAAAAAAAAAAAAAWGluZw';
+
 export const AudioAdvisoryPlayer: React.FC<AudioAdvisoryPlayerProps> = ({
-  senderName = 'सुनीता दीदी (ASHA Sunita B.)',
-  timestamp = 'Today, 10:15 AM',
-  hindiMessage,
-  englishTranslation,
-  onScheduleReminder,
+  motherName = 'बहनजी',
+  hindiAdvisory = 'नमस्ते, कृपया रोज़ दोपहर के भोजन के बाद आयरन की लाल गोली और रात को कैल्शियम की गोली लें।',
+  englishTranslation = 'Please take your Iron tablet after lunch and Calcium tablet after dinner daily.',
+  doctorName = 'Gemini 3.8 Flash • MoHFW Clinical AI',
+  recordedAt = 'Live Audio Advisory',
+  audioBase64,
 }) => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
-  const [showTranslation, setShowTranslation] = useState(true);
+  const [showEnglish, setShowEnglish] = useState(false);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
-    let interval: NodeJS.Timeout;
-    if (isPlaying) {
-      interval = setInterval(() => {
-        setProgress((prev) => {
-          if (prev >= 100) {
-            setIsPlaying(false);
-            return 0;
-          }
-          return prev + 5;
-        });
-      }, 300);
-    }
-    return () => clearInterval(interval);
-  }, [isPlaying]);
+    return () => {
+      if (audioRef.current) {
+        audioRef.current.pause();
+      }
+      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+      }
+    };
+  }, []);
 
-  const handleTogglePlay = () => {
-    if (isPlaying) {
+  const speakWithBrowserFallback = (text: string) => {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
       setIsPlaying(false);
-    } else {
-      if (progress >= 100) setProgress(0);
-      setIsPlaying(true);
+      return;
     }
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = 'hi-IN';
+    utterance.rate = 0.95;
+    utterance.onboundary = (ev) => {
+      const pct = Math.min(95, Math.round((ev.charIndex / Math.max(1, text.length)) * 100));
+      setProgress(pct);
+    };
+    utterance.onend = () => {
+      setProgress(100);
+      setIsPlaying(false);
+    };
+    utterance.onerror = () => {
+      setIsPlaying(false);
+    };
+    window.speechSynthesis.speak(utterance);
+  };
+
+  const togglePlay = async () => {
+    if (isPlaying) {
+      if (audioRef.current) {
+        audioRef.current.pause();
+      }
+      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+      }
+      setIsPlaying(false);
+      return;
+    }
+
+    setIsPlaying(true);
+    setProgress(5);
+
+    let b64 = audioBase64;
+    if (!b64) {
+      try {
+        const res = await synthesizeHindiTts(hindiAdvisory);
+        b64 = res.audio_base64;
+      } catch {
+        // fallback to browser speech synthesis
+      }
+    }
+
+    // If b64 is real MP3 audio (not the tiny silent mock frame), play via HTML5 Audio
+    if (b64 && !b64.startsWith(MOCK_FRAME_PREFIX)) {
+      try {
+        const audio = new Audio(`data:audio/mp3;base64,${b64}`);
+        audioRef.current = audio;
+        audio.ontimeupdate = () => {
+          if (audio.duration) {
+            setProgress(Math.round((audio.currentTime / audio.duration) * 100));
+          }
+        };
+        audio.onended = () => {
+          setProgress(100);
+          setIsPlaying(false);
+        };
+        audio.onerror = () => {
+          speakWithBrowserFallback(hindiAdvisory);
+        };
+        await audio.play();
+        return;
+      } catch {
+        speakWithBrowserFallback(hindiAdvisory);
+        return;
+      }
+    }
+
+    // Otherwise use native Hindi Web Speech synthesis so live audio works even when USE_MOCK_AI=true
+    speakWithBrowserFallback(hindiAdvisory);
   };
 
   return (
-    <div className="relative overflow-hidden rounded-xl bg-surface-container-lowest shadow-sm border border-outline-variant/30 p-5 md:p-6">
-      <div className="flex flex-col md:flex-row md:items-start justify-between gap-5">
-        {/* Left icon & text */}
-        <div className="flex items-start gap-4">
-          <div className="w-12 h-12 rounded-full bg-tertiary-fixed text-primary-container flex items-center justify-center shadow-xs shrink-0 mt-1">
-            <span className="material-symbols-outlined text-[28px]">record_voice_over</span>
+    <div className="rounded-2xl bg-gradient-to-r from-primary-container via-primary to-primary-container text-on-primary p-5 md:p-6 shadow-lg relative overflow-hidden">
+      <div className="relative z-10 flex flex-col gap-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <span className="px-2.5 py-0.5 rounded-full bg-tertiary-fixed text-on-tertiary-fixed text-[11px] font-extrabold uppercase tracking-wider flex items-center gap-1">
+              <span className="material-symbols-outlined text-[14px]">campaign</span>
+              <span>हिंदी स्वास्थ्य सलाह (Voice Advisory)</span>
+            </span>
+            <span className="text-xs text-primary-fixed/80 font-medium">
+              • {recordedAt} ({motherName})
+            </span>
           </div>
 
-          <div className="space-y-1.5 flex-1">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-xs uppercase tracking-wider px-2.5 py-0.5 rounded-full bg-secondary text-on-secondary font-bold">
-                आशा दीदी का ऑडियो संदेश (Voice Advisory)
-              </span>
-              <span className="text-xs text-on-surface-variant font-medium">{timestamp}</span>
-            </div>
-
-            <h3 className="text-base font-bold text-primary-container">
-              {senderName} का विशेष संदेश आपके लिए
-            </h3>
-
-            {/* Audio Speech Box */}
-            <div className="mt-2 p-4 rounded-xl bg-surface-container-low text-on-surface shadow-inner border border-outline-variant/20">
-              <p className="text-base leading-relaxed italic text-on-surface font-medium">
-                “{hindiMessage}”
-              </p>
-              {showTranslation && (
-                <p className="text-xs text-on-surface-variant mt-2 border-t border-outline-variant/20 pt-2">
-                  <strong className="text-secondary">English:</strong> {englishTranslation}
-                </p>
-              )}
-
-              {/* Simulated Audio Waveform Bar */}
-              <div className="mt-3 flex items-center gap-1.5">
-                {[40, 65, 80, 45, 90, 75, 60, 85, 95, 70, 50, 60, 80, 40, 70, 90, 85, 60, 75, 50].map(
-                  (height, idx) => {
-                    const activeBar = (idx / 20) * 100 <= progress;
-                    return (
-                      <div
-                        key={idx}
-                        className={`w-1 rounded-full transition-all duration-200 ${
-                          activeBar
-                            ? 'bg-secondary'
-                            : 'bg-outline-variant/50'
-                        } ${isPlaying ? 'animate-pulse' : ''}`}
-                        style={{ height: `${height}%`, minHeight: '8px', maxHeight: '28px' }}
-                      />
-                    );
-                  }
-                )}
-                <span className="text-[11px] font-mono text-on-surface-variant ml-2 font-bold">
-                  {isPlaying ? `0:${Math.floor((progress / 100) * 35).toString().padStart(2, '0')}` : '0:35'}
-                </span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Audio Action Buttons */}
-        <div className="flex flex-col sm:flex-row md:flex-col gap-2 shrink-0 self-start md:self-center">
           <button
             type="button"
-            onClick={handleTogglePlay}
-            className="px-5 py-3 rounded-xl bg-secondary text-on-secondary text-sm font-bold shadow-md hover:bg-secondary/90 active:scale-95 transition-all flex items-center justify-center gap-2"
+            onClick={() => setShowEnglish(!showEnglish)}
+            className="text-xs text-secondary-fixed hover:underline font-semibold flex items-center gap-1"
           >
-            <span className="material-symbols-outlined text-[24px]">
+            <span className="material-symbols-outlined text-[15px]">translate</span>
+            <span>{showEnglish ? 'हिंदी में देखें' : 'Read in English'}</span>
+          </button>
+        </div>
+
+        <div className="bg-white/10 backdrop-blur-xs rounded-xl p-4 border border-white/15">
+          {!showEnglish ? (
+            <p className="text-base md:text-lg font-bold leading-relaxed text-white">
+              &ldquo;{hindiAdvisory}&rdquo;
+            </p>
+          ) : (
+            <p className="text-sm md:text-base font-medium leading-relaxed text-primary-fixed">
+              &ldquo;{englishTranslation}&rdquo;
+            </p>
+          )}
+          <p className="text-xs text-secondary-fixed mt-2 font-semibold">
+            — {doctorName}
+          </p>
+        </div>
+
+        <div className="flex flex-col sm:flex-row sm:items-center gap-4 pt-1">
+          <button
+            type="button"
+            onClick={togglePlay}
+            className="inline-flex items-center justify-center gap-2.5 px-5 py-3 rounded-xl bg-tertiary-fixed text-on-tertiary-fixed font-extrabold text-sm shadow-md hover:opacity-95 active:scale-98 transition-all cursor-pointer shrink-0"
+          >
+            <span className="material-symbols-outlined text-[22px]">
               {isPlaying ? 'pause_circle' : 'play_circle'}
             </span>
             <span>{isPlaying ? 'रोकें (Pause)' : 'सुनें (Listen Audio)'}</span>
           </button>
 
-          <button
-            type="button"
-            onClick={() => setShowTranslation(!showTranslation)}
-            className="px-4 py-2 rounded-lg bg-surface-container hover:bg-surface-container-high text-on-surface text-xs font-semibold transition-all flex items-center justify-center gap-1.5"
-          >
-            <span className="material-symbols-outlined text-[16px]">translate</span>
-            <span>{showTranslation ? 'Hide Translation' : 'View Translation'}</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={onScheduleReminder}
-            className="px-4 py-1.5 rounded-lg text-on-surface-variant hover:text-on-surface text-xs font-medium text-center hover:bg-surface-container-low transition-colors"
-          >
-            बाद में याद दिलाएँ (Remind Later)
-          </button>
+          <div className="flex-1 flex flex-col gap-1.5">
+            <div className="w-full h-2.5 bg-white/15 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-secondary-fixed rounded-full transition-all duration-150"
+                style={{ width: `${progress}%` }}
+              />
+            </div>
+            <div className="flex items-center justify-between text-[11px] text-primary-fixed/80 font-semibold">
+              <span>{isPlaying ? 'Playing Hindi Voice Advisory...' : 'Ready to play'}</span>
+              <span>{progress}%</span>
+            </div>
+          </div>
         </div>
       </div>
     </div>
   );
 };
-

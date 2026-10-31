@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { AppProvider } from "@/context/AppContext";
 
 export const metadata: Metadata = {
   title: "MatruRaksha - Maternal Care OS & Clinical Surveillance",
@@ -29,7 +30,7 @@ export default function RootLayout({
         />
       </head>
       <body className="min-h-screen bg-background text-on-surface font-sans antialiased">
-        {children}
+        <AppProvider>{children}</AppProvider>
       </body>
     </html>
   );

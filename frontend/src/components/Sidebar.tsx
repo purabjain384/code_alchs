@@ -3,6 +3,7 @@
 import React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { useApp } from '@/context/AppContext';
 
 interface SidebarProps {
   isOpen?: boolean;
@@ -20,34 +21,39 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onOpenSosModal,
 }) => {
   const pathname = usePathname();
+  const { mothers, setIsAuthModalOpen } = useApp();
 
-  const handleNavClick = (tabKey: string, href?: string) => {
-    if (onTabChange) {
-      onTabChange(tabKey);
-    }
-    if (onClose) {
-      onClose();
-    }
+  const highRiskCount = mothers.filter((m) => m.riskLevel === 'HIGH').length;
+
+  const handleNavClick = (tabKey: string) => {
+    if (onTabChange) onTabChange(tabKey);
+    if (onClose) onClose();
   };
 
   const navItems = [
     { key: 'overview', label: 'Overview', icon: 'grid_view', href: '/' },
-    { key: 'mothers-registry', label: 'Mothers Registry', icon: 'pregnant_woman', href: '/#roster' },
-    { key: 'asha-workers', label: 'ASHA Workers', icon: 'diversity_1', href: '/asha' },
-    { key: 'high-risk', label: 'High-Risk Cases', icon: 'emergency', badge: '18', badgeColor: 'bg-error', href: '/#high-risk' },
-    { key: 'visit-monitoring', label: 'Visit Monitoring', icon: 'event_available', href: '/asha' },
-    { key: 'analytics', label: 'Analytics', icon: 'monitoring', href: '/#analytics' },
-  ];
-
-  const adminItems = [
-    { key: 'notifications', label: 'Notifications', icon: 'notifications', badge: '5', badgeColor: 'bg-secondary' },
-    { key: 'companion-view', label: 'Mother Companion View', icon: 'favorite', href: '/mother' },
-    { key: 'settings', label: 'Settings', icon: 'settings' },
+    {
+      key: 'mothers-registry',
+      label: 'Mothers Registry',
+      icon: 'pregnant_woman',
+      badge: mothers.length > 0 ? String(mothers.length) : undefined,
+      badgeColor: 'bg-secondary',
+      href: '/#roster',
+    },
+    { key: 'asha-workers', label: 'ASHA Field View', icon: 'diversity_1', href: '/asha' },
+    {
+      key: 'high-risk',
+      label: 'High-Risk Cases',
+      icon: 'emergency',
+      badge: highRiskCount > 0 ? String(highRiskCount) : undefined,
+      badgeColor: 'bg-error',
+      href: '/#high-risk',
+    },
+    { key: 'companion-view', label: 'Mother Companion', icon: 'favorite', href: '/mother' },
   ];
 
   return (
     <>
-      {/* Mobile Backdrop */}
       {isOpen && (
         <div
           onClick={onClose}
@@ -60,7 +66,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
           isOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
         }`}
       >
-        {/* Brand Top Header */}
         <div className="h-16 px-6 flex items-center justify-between border-b border-on-primary-container/20">
           <div className="flex items-center gap-2.5">
             <div className="w-2.5 h-2.5 rounded-full bg-secondary-fixed ring-2 ring-secondary animate-pulse" />
@@ -73,22 +78,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </span>
             </div>
           </div>
-          <div className="flex items-center gap-1.5">
-            <span className="text-[10px] px-1.5 py-0.5 rounded bg-on-primary-container/30 text-primary-fixed font-bold">
-              v2.4
-            </span>
-            {onClose && (
-              <button
-                onClick={onClose}
-                className="p-1 rounded text-primary-fixed hover:text-white lg:hidden"
-              >
-                <span className="material-symbols-outlined text-[20px]">close</span>
-              </button>
-            )}
-          </div>
+          {onClose && (
+            <button
+              onClick={onClose}
+              className="p-1 rounded text-primary-fixed hover:text-white lg:hidden"
+            >
+              <span className="material-symbols-outlined text-[20px]">close</span>
+            </button>
+          )}
         </div>
 
-        {/* District Status Strip */}
         <div className="px-4 py-2 border-b border-on-primary-container/15 bg-on-primary-fixed/20">
           <div className="flex items-center justify-between text-on-primary-container text-xs">
             <span className="flex items-center gap-1.5">
@@ -99,7 +98,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
         </div>
 
-        {/* Scrollable Navigation */}
         <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
           <div>
             <div className="mb-2 px-3 text-[11px] font-bold uppercase tracking-wider text-on-primary-container/80">
@@ -110,13 +108,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 const isActive =
                   activeTab === item.key ||
                   (item.key === 'overview' && pathname === '/' && !activeTab) ||
-                  (item.key === 'asha-workers' && pathname.includes('/asha'));
+                  (item.key === 'asha-workers' && pathname.includes('/asha')) ||
+                  (item.key === 'companion-view' && pathname.includes('/mother'));
 
                 return (
                   <Link
                     key={item.key}
-                    href={item.href || '#'}
-                    onClick={() => handleNavClick(item.key, item.href)}
+                    href={item.href}
+                    onClick={() => handleNavClick(item.key)}
                     className={`flex items-center justify-between px-3.5 py-2.5 rounded-lg transition-all text-sm font-semibold ${
                       isActive
                         ? 'bg-tertiary-fixed text-on-tertiary-fixed font-bold shadow-sm'
@@ -131,9 +130,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     </div>
                     {item.badge && (
                       <span
-                        className={`px-1.5 py-0.5 rounded-full text-[10px] text-white font-bold ${
-                          item.badgeColor || 'bg-secondary'
-                        }`}
+                        className={`px-1.5 py-0.5 rounded-full text-[10px] text-white font-bold ${item.badgeColor}`}
                       >
                         {item.badge}
                       </span>
@@ -146,36 +143,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
           <div>
             <div className="pt-2 mb-2 px-3 text-[11px] font-bold uppercase tracking-wider text-on-primary-container/80">
-              Administration & Roles
+              Authentication
             </div>
-            <nav className="space-y-1">
-              {adminItems.map((item) => (
-                <Link
-                  key={item.key}
-                  href={item.href || '#'}
-                  onClick={() => handleNavClick(item.key, item.href)}
-                  className="flex items-center justify-between px-3.5 py-2.5 rounded-lg text-primary-fixed hover:bg-on-primary-fixed-variant/40 hover:text-on-primary transition-all text-sm font-semibold"
-                >
-                  <div className="flex items-center gap-3">
-                    <span className="material-symbols-outlined text-[20px]">
-                      {item.icon}
-                    </span>
-                    <span>{item.label}</span>
-                  </div>
-                  {item.badge && (
-                    <span
-                      className={`px-1.5 py-0.5 rounded-full text-[10px] text-white font-bold ${item.badgeColor}`}
-                    >
-                      {item.badge}
-                    </span>
-                  )}
-                </Link>
-              ))}
-            </nav>
+            <button
+              type="button"
+              onClick={() => setIsAuthModalOpen(true)}
+              className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-lg text-primary-fixed hover:bg-on-primary-fixed-variant/40 hover:text-on-primary transition-all text-sm font-semibold text-left"
+            >
+              <span className="material-symbols-outlined text-[20px]">verified_user</span>
+              <span>Phone + OTP Sign In</span>
+            </button>
           </div>
         </div>
 
-        {/* Emergency Referral Bottom Bar */}
         <div className="p-4 border-t border-on-primary-container/20 bg-on-primary-fixed/30">
           <button
             type="button"
@@ -190,7 +170,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 108 / 102 Ambulance
               </span>
             </div>
-            <div className="w-8 h-8 rounded-full bg-secondary-fixed/20 flex items-center justify-center text-secondary-fixed group-hover:scale-110 transition-transform">
+            <div className="w-8 h-8 rounded-full bg-secondary-fixed/20 flex items-center justify-center text-secondary-fixed">
               <span className="material-symbols-outlined text-[20px]">e911_emergency</span>
             </div>
           </button>
@@ -199,4 +179,3 @@ export const Sidebar: React.FC<SidebarProps> = ({
     </>
   );
 };
-
