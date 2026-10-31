@@ -114,12 +114,12 @@ def synthesize_hindi_speech(hindi_text: str) -> str:
     if not hindi_text or not hindi_text.strip():
         return ""
 
-    # 1. Primary: gTTS (Google Translate Text-to-Speech in Hindi) — reliable, fast, genuine Hindi voice
+    # 1. Primary: gTTS (Google Translate Text-to-Speech in Hindi) with 5s timeout
     try:
         from gtts import gTTS
         import io
         clean_text = hindi_text.strip()
-        tts = gTTS(text=clean_text, lang="hi", slow=False)
+        tts = gTTS(text=clean_text, lang="hi", slow=False, timeout=5.0)
         fp = io.BytesIO()
         tts.write_to_fp(fp)
         fp.seek(0)
@@ -129,27 +129,30 @@ def synthesize_hindi_speech(hindi_text: str) -> str:
     except Exception as exc:
         logger.warning("gTTS synthesis fallback triggered: %s", exc)
 
-    # 2. Secondary: Google Cloud Text-to-Speech API
-    try:
-        from google.cloud import texttospeech
-        tts_client = texttospeech.TextToSpeechClient()
-        synthesis_input = texttospeech.SynthesisInput(text=hindi_text)
-        voice = texttospeech.VoiceSelectionParams(
-            language_code="hi-IN",
-            name="hi-IN-Neural2-A",
-        )
-        audio_config = texttospeech.AudioConfig(
-            audio_encoding=texttospeech.AudioEncoding.MP3,
-            speaking_rate=0.95,
-        )
-        tts_response = tts_client.synthesize_speech(
-            input=synthesis_input, voice=voice, audio_config=audio_config
-        )
-        return base64.b64encode(tts_response.audio_content).decode("utf-8")
-    except Exception as exc:
-        logger.warning("Cloud TTS fallback triggered: %s", exc)
+    # 2. Secondary: Google Cloud Text-to-Speech API (only if credentials or Cloud Run environment active)
+    cred_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS", "")
+    has_creds = (cred_path and os.path.exists(cred_path)) or bool(os.getenv("K_SERVICE"))
+    if has_creds:
+        try:
+            from google.cloud import texttospeech
+            tts_client = texttospeech.TextToSpeechClient()
+            synthesis_input = texttospeech.SynthesisInput(text=hindi_text)
+            voice = texttospeech.VoiceSelectionParams(
+                language_code="hi-IN",
+                name="hi-IN-Neural2-A",
+            )
+            audio_config = texttospeech.AudioConfig(
+                audio_encoding=texttospeech.AudioEncoding.MP3,
+                speaking_rate=0.95,
+            )
+            tts_response = tts_client.synthesize_speech(
+                input=synthesis_input, voice=voice, audio_config=audio_config
+            )
+            return base64.b64encode(tts_response.audio_content).decode("utf-8")
+        except Exception as exc:
+            logger.warning("Cloud TTS fallback triggered: %s", exc)
 
-    return MOCK_MP3_BASE64
+    return ""
 
 
 def summarize_mother_history(mother_id: str, visits: List[Dict[str, Any]]) -> Dict[str, str]:

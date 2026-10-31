@@ -166,10 +166,10 @@ export default function HomePage() {
       });
 
       setAnalysisStep(4);
-      await loadMotherData(user);
       setActiveResult(response);
       setIsAnalyzing(false);
       setActiveTab('result');
+      loadMotherData(user).catch(console.error);
     } catch (err) {
       setIsAnalyzing(false);
       setFormError(err instanceof Error ? err.message : 'Evaluation failed.');

@@ -18,7 +18,9 @@ export function HindiAudioPlayer({
     initialAudioBase64 && initialAudioBase64.length > 500 ? initialAudioBase64 : null
   );
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
-  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [isLoading, setIsLoading] = useState<boolean>(
+    !initialAudioBase64 || initialAudioBase64.length <= 500
+  );
   const [speechMode, setSpeechMode] = useState<'mp3' | 'speech-api' | null>(null);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -27,10 +29,11 @@ export function HindiAudioPlayer({
   useEffect(() => {
     if (initialAudioBase64 && initialAudioBase64.length > 500) {
       setAudioBase64(initialAudioBase64);
+      setIsLoading(false);
     }
   }, [initialAudioBase64]);
 
-  // Clean up on unmount
+  // Clean up audio on unmount
   useEffect(() => {
     return () => {
       if (audioRef.current) {
@@ -41,6 +44,29 @@ export function HindiAudioPlayer({
       }
     };
   }, []);
+
+  // Asynchronously generate audio in the background after results page renders
+  useEffect(() => {
+    let isMounted = true;
+    if ((!audioBase64 || audioBase64.length <= 500) && text && text.trim()) {
+      setIsLoading(true);
+      synthesizeSpeechApi(text)
+        .then((res) => {
+          if (isMounted && res && res.audio_base64 && res.audio_base64.length > 500) {
+            setAudioBase64(res.audio_base64);
+          }
+        })
+        .catch((err) => {
+          console.warn('Background speech synthesis failed:', err);
+        })
+        .finally(() => {
+          if (isMounted) setIsLoading(false);
+        });
+    }
+    return () => {
+      isMounted = false;
+    };
+  }, [text]);
 
   const stopAllPlayback = () => {
     if (audioRef.current) {
@@ -64,7 +90,6 @@ export function HindiAudioPlayer({
     utterance.lang = 'hi-IN';
     utterance.rate = 0.95;
 
-    // Pick best Hindi voice if installed on system
     const voices = window.speechSynthesis.getVoices();
     const hiVoice = voices.find(
       (v) => v.lang === 'hi-IN' || v.lang.toLowerCase().includes('hindi') || v.lang.startsWith('hi')
@@ -95,22 +120,19 @@ export function HindiAudioPlayer({
 
     if (!text || !text.trim()) return;
 
-    // 1. If we already have a valid high-fidelity MP3 base64
-    let currentB64 = audioBase64;
-    if (currentB64 && currentB64.length > 500) {
+    if (audioBase64 && audioBase64.length > 500) {
       try {
         if (!audioRef.current) {
-          audioRef.current = new Audio(`data:audio/mp3;base64,${currentB64}`);
+          audioRef.current = new Audio(`data:audio/mp3;base64,${audioBase64}`);
           audioRef.current.onended = () => {
             setIsPlaying(false);
             setSpeechMode(null);
           };
           audioRef.current.onerror = () => {
-            // Audio tag error -> fallback to Web Speech
             playViaWebSpeech(text);
           };
         } else {
-          audioRef.current.src = `data:audio/mp3;base64,${currentB64}`;
+          audioRef.current.src = `data:audio/mp3;base64,${audioBase64}`;
         }
 
         setSpeechMode('mp3');
@@ -118,45 +140,57 @@ export function HindiAudioPlayer({
         await audioRef.current.play();
         return;
       } catch (err) {
-        console.warn('HTML5 Audio playback error, falling back:', err);
+        console.warn('HTML5 Audio playback error, using Web Speech fallback:', err);
       }
     }
 
-    // 2. If no valid MP3 base64 yet, try on-demand synthesis from backend
-    setIsLoading(true);
-    try {
-      const res = await synthesizeSpeechApi(text);
-      if (res && res.audio_base64 && res.audio_base64.length > 500) {
-        setAudioBase64(res.audio_base64);
-        setIsLoading(false);
-
-        const newAudio = new Audio(`data:audio/mp3;base64,${res.audio_base64}`);
-        audioRef.current = newAudio;
-        newAudio.onended = () => {
-          setIsPlaying(false);
-          setSpeechMode(null);
-        };
-        newAudio.onerror = () => {
-          playViaWebSpeech(text);
-        };
-
-        setSpeechMode('mp3');
-        setIsPlaying(true);
-        await newAudio.play();
-        return;
-      }
-    } catch (err) {
-      console.warn('Backend TTS request failed, using Web Speech API fallback:', err);
-    } finally {
-      setIsLoading(false);
-    }
-
-    // 3. Fallback: Native Browser SpeechSynthesis in Hindi
+    // Fallback: Immediate browser speech synthesis
     playViaWebSpeech(text);
   };
 
+  // State A: Audio is still generating in the background
+  if (isLoading && (!audioBase64 || audioBase64.length <= 500)) {
+    return (
+      <div className="mt-3 p-3.5 rounded-xl bg-slate-50 border border-slate-200 flex flex-wrap items-center justify-between gap-2.5 transition">
+        <div className="flex items-center space-x-2.5 text-xs text-slate-600">
+          <svg
+            className="animate-spin h-4 w-4 text-teal-600"
+            xmlns="http://www.w3.org/2000/svg"
+            fill="none"
+            viewBox="0 0 24 24"
+          >
+            <circle
+              className="opacity-25"
+              cx="12"
+              cy="12"
+              r="10"
+              stroke="currentColor"
+              strokeWidth="4"
+            ></circle>
+            <path
+              className="opacity-75"
+              fill="currentColor"
+              d="M4 12a8 8 0 018-8v8H4z"
+            ></path>
+          </svg>
+          <span className="font-medium">
+            🎧 हिंदी ऑडियो तैयार हो रहा है... (Audio loading in background)
+          </span>
+        </div>
+        <button
+          type="button"
+          onClick={() => (isPlaying ? stopAllPlayback() : playViaWebSpeech(text))}
+          className="px-3 py-1.5 rounded-lg bg-teal-100 hover:bg-teal-200 text-teal-800 text-xs font-bold transition cursor-pointer"
+        >
+          {isPlaying ? '⏹ रोकें (Stop)' : '🔊 तुरंत सुनें (Speak Now)'}
+        </button>
+      </div>
+    );
+  }
+
+  // State B: Audio is ready
   return (
-    <div className="mt-3 p-3.5 rounded-xl bg-teal-50/70 border border-teal-200">
+    <div className="mt-3 p-3.5 rounded-xl bg-teal-50/70 border border-teal-200 transition">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center space-x-2">
           <span className="flex h-3 w-3 relative">
@@ -185,38 +219,13 @@ export function HindiAudioPlayer({
         <button
           type="button"
           onClick={handleTogglePlay}
-          disabled={isLoading}
           className={`inline-flex items-center space-x-2 px-3.5 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer shadow-sm ${
             isPlaying
               ? 'bg-rose-600 hover:bg-rose-700 text-white'
               : 'bg-teal-700 hover:bg-teal-800 text-white'
           }`}
         >
-          {isLoading ? (
-            <>
-              <svg
-                className="animate-spin -ml-1 mr-2 h-3.5 w-3.5 text-white"
-                xmlns="http://www.w3.org/2000/svg"
-                fill="none"
-                viewBox="0 0 24 24"
-              >
-                <circle
-                  className="opacity-25"
-                  cx="12"
-                  cy="12"
-                  r="10"
-                  stroke="currentColor"
-                  strokeWidth="4"
-                ></circle>
-                <path
-                  className="opacity-75"
-                  fill="currentColor"
-                  d="M4 12a8 8 0 018-8v8H4z"
-                ></path>
-              </svg>
-              <span>तैयार हो रहा है...</span>
-            </>
-          ) : isPlaying ? (
+          {isPlaying ? (
             <>
               <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24">
                 <rect x="6" y="6" width="12" height="12" rx="2" />
@@ -234,7 +243,6 @@ export function HindiAudioPlayer({
         </button>
       </div>
 
-      {/* Standard HTML5 audio scrub player if MP3 is available */}
       {audioBase64 && audioBase64.length > 500 && (
         <audio
           controls
@@ -254,4 +262,3 @@ export function HindiAudioPlayer({
     </div>
   );
 }
-

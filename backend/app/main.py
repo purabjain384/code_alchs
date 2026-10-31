@@ -3,7 +3,7 @@ import uuid
 from typing import Any, Dict, List
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import BackgroundTasks, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 load_dotenv()
@@ -38,6 +38,7 @@ from app.services.db import (  # noqa: E402
     list_all_visits,
     list_mothers,
     save_visit_and_update_mother,
+    update_visit_audio,
     verify_phone_otp_and_upsert_user,
 )
 from app.services.risk_engine import evaluate_full_risk, get_model_metadata  # noqa: E402
@@ -131,8 +132,17 @@ def get_all_visits_route(limit: int = 100, mother_id: str | None = None):
     return list_all_visits(limit=limit, mother_id=mother_id)
 
 
+def _bg_synthesize_audio(visit_id: str, mother_id: str, hindi_text: str) -> None:
+    try:
+        audio_b64 = synthesize_hindi_speech(hindi_text)
+        if audio_b64 and len(audio_b64) > 500:
+            update_visit_audio(visit_id, mother_id, audio_b64)
+    except Exception:
+        pass
+
+
 @app.post("/evaluate-visit", response_model=EvaluateVisitResponse)
-def evaluate_visit_route(req: EvaluateVisitRequest):
+def evaluate_visit_route(req: EvaluateVisitRequest, background_tasks: BackgroundTasks):
     profile = get_mother_profile(req.mother_id)
     age = req.age
     past_visits = get_mother_visits(req.mother_id, limit=10)
@@ -151,7 +161,6 @@ def evaluate_visit_route(req: EvaluateVisitRequest):
         combined_risk=combined,
     )
 
-    audio_b64 = synthesize_hindi_speech(ai_explanation["hindi_text"])
     visit_id = f"vis-{uuid.uuid4().hex[:10]}"
 
     visit_doc = {
@@ -180,11 +189,15 @@ def evaluate_visit_route(req: EvaluateVisitRequest):
         "hindi_text": ai_explanation["hindi_text"],
         "action_items_en": ai_explanation["action_items_en"],
         "action_items_hi": ai_explanation["action_items_hi"],
-        "audio_base64": audio_b64,
+        "audio_base64": "",
         "timestamp": req.timestamp.isoformat(),
     }
 
     save_result = save_visit_and_update_mother(visit_doc)
+
+    background_tasks.add_task(
+        _bg_synthesize_audio, visit_id, req.mother_id, ai_explanation["hindi_text"]
+    )
 
     return EvaluateVisitResponse(
         **visit_doc,

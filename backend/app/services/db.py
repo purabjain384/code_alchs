@@ -387,3 +387,21 @@ def save_visit_and_update_mother(visit_doc: Dict[str, Any]) -> Dict[str, Any]:
             logger.warning("Firestore batch write failed: %s", exc)
 
     return {"saved_to_firestore": saved_firestore, "mother_record": mother}
+
+
+def update_visit_audio(visit_id: str, mother_id: str, audio_base64: str) -> None:
+    for v in _MEMORY_VISITS.get(mother_id, []):
+        if v.get("visit_id") == visit_id:
+            v["audio_base64"] = audio_base64
+            break
+    if mother_id in _MEMORY_MOTHERS:
+        _MEMORY_MOTHERS[mother_id]["audioBase64"] = audio_base64
+
+    db = get_firestore_client()
+    if db is not None:
+        try:
+            db.collection("visits").document(visit_id).update({"audio_base64": audio_base64})
+            db.collection("mothers").document(mother_id).update({"audioBase64": audio_base64})
+        except Exception as exc:
+            logger.warning("Could not persist background audio to Firestore: %s", exc)
+
