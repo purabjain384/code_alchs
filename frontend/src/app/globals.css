@@ -1,0 +1,100 @@
+@import "tailwindcss";
+
+* {
+  box-sizing: border-box;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  background-color: var(--color-background);
+  color: var(--color-on-surface);
+}
+
+@theme {
+  --font-sans: 'Plus Jakarta Sans', system-ui, sans-serif;
+
+  --color-primary: #010006;
+  --color-primary-container: #21133f;
+  --color-on-primary: #ffffff;
+  --color-on-primary-container: #8c7cae;
+  --color-primary-fixed: #eaddff;
+  --color-primary-fixed-dim: #d0bef5;
+  --color-on-primary-fixed: #21133f;
+  --color-on-primary-fixed-variant: #4d3f6d;
+
+  --color-secondary: #006b58;
+  --color-secondary-container: #99f4da;
+  --color-on-secondary: #ffffff;
+  --color-on-secondary-container: #00725e;
+  --color-secondary-fixed: #99f4da;
+  --color-secondary-fixed-dim: #7dd7be;
+  --color-on-secondary-fixed: #002019;
+  --color-on-secondary-fixed-variant: #005142;
+
+  --color-tertiary: #666000;
+  --color-tertiary-container: #b9ae00;
+  --color-on-tertiary: #ffffff;
+  --color-on-tertiary-container: #454100;
+  --color-tertiary-fixed: #f2e649;
+  --color-tertiary-fixed-dim: #d5ca2c;
+  --color-on-tertiary-fixed: #1f1c00;
+  --color-on-tertiary-fixed-variant: #4d4800;
+
+  --color-error: #ba1a1a;
+  --color-error-container: #ffdad6;
+  --color-on-error: #ffffff;
+  --color-on-error-container: #93000a;
+
+  --color-surface: #f9f9ff;
+  --color-surface-dim: #cfdaf1;
+  --color-surface-bright: #f9f9ff;
+  --color-surface-variant: #d8e3fa;
+  --color-surface-container-lowest: #ffffff;
+  --color-surface-container-low: #f0f3ff;
+  --color-surface-container: #e7eeff;
+  --color-surface-container-high: #dee9ff;
+  --color-surface-container-highest: #d8e3fa;
+  --color-on-surface: #111c2c;
+  --color-on-surface-variant: #49454e;
+  --color-inverse-surface: #263142;
+  --color-inverse-on-surface: #ebf1ff;
+  --color-surface-tint: #655786;
+
+  --color-background: #f9f9ff;
+  --color-on-background: #111c2c;
+
+  --color-outline: #7a757f;
+  --color-outline-variant: #cac4cf;
+
+  --spacing-space-xs: 0.25rem;
+  --spacing-space-sm: 0.5rem;
+  --spacing-space-md: 1rem;
+  --spacing-space-lg: 1.5rem;
+  --spacing-space-xl: 2rem;
+  --spacing-space-2xl: 3rem;
+
+  --spacing-margin: 1rem;
+  --spacing-margin-tablet: 1.5rem;
+  --spacing-margin-desktop: 2.5rem;
+
+  --spacing-gutter: 1rem;
+  --spacing-gutter-desktop: 1.5rem;
+}
+
+.material-symbols-outlined {
+  font-family: 'Material Symbols Outlined';
+  font-weight: normal;
+  font-style: normal;
+  font-size: 24px;
+  line-height: 1;
+  letter-spacing: normal;
+  text-transform: none;
+  display: inline-block;
+  white-space: nowrap;
+  word-wrap: normal;
+  direction: ltr;
+  -webkit-font-feature-settings: 'liga';
+  -webkit-font-smoothing: antialiased;
+}
