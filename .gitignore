@@ -1,0 +1,121 @@
+# ==========================================
+# Python & FastAPI Core
+# ==========================================
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Pipenv / Poetry / Dependency locks
+# Remove these if you deliberately want to commit lock files
+# .pyenv/
+# celerybeat-schedule
+# *.log
+
+# FastAPI / Uvicorn / Gunicorn logs
+*.log
+logs/
+uvicorn.log
+gunicorn.log
+
+# ==========================================
+# RAG, Vector DBs, & AI Frameworks
+# ==========================================
+# Local Vector Databases (Chroma, FAISS, LanceDB, etc.)
+.chroma/
+chroma_db/
+faiss_index/
+lancedb/
+qdrant_data/
+marqo_data/
+
+# Local LLM / Embedding model caches (HuggingFace, Ollama)
+.cache/huggingface/
+.cache/torch/
+.cache/onnx/
+models/
+*.bin
+*.gguf
+*.onnx
+
+# Data ingestion & Data pipelines
+data/raw/
+data/processed/
+*.csv
+*.jsonl
+*.pdf
+*.txt
+*.xlsx
+# Exception: Allow configuration data if needed
+# !data/config.json
+
+# LangChain / LlamaIndex tracing and caches
+.langchain/
+.llamaindex/
+.langsmith/
+
+# ==========================================
+# Web Development (Frontend/Fullstack if applicable)
+# ==========================================
+# Dependency directories
+node_modules/
+jspm_packages/
+
+# Build outputs (Next.js, React, Vue, Vite)
+dist/
+build/
+.next/
+out/
+.vuepress/dist
+.docusaurus/
+
+# Frontend Logs & Env
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# ==========================================
+# Operating System & IDEs
+# ==========================================
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Windows
+Thumbs.db
+Ehthumbs.db
+desktop.ini
+
+# IDEs (VS Code, PyCharm)
+.vscode/
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+
+# ==========================================
+# Testing & CI/CD
+# ==========================================
+.pytest_cache/
+.coverage
+htmlcov/
+.flake8
+.tox/
