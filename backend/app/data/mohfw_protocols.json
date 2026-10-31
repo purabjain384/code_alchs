@@ -1,0 +1,172 @@
+{
+  "bp_severe_160_110": {
+    "condition_tag": "severe_preeclampsia",
+    "condition_name": "Severe Hypertension / Severe Preeclampsia Risk",
+    "min_risk_level": "high",
+    "clinical_reason_en": "Blood pressure is severely elevated (>= 160/110 mmHg), indicating immediate risk of eclampsia or maternal stroke.",
+    "clinical_reason_hi": "माँ का बीपी (रक्तचाप) बहुत अधिक बढ़ा हुआ है (160/110 या उससे ऊपर), जो गंभीर खतरे का संकेत है।",
+    "next_step_en": "Arrange immediate referral to the nearest FRU/CHC within 2 hours, check for headache or blurred vision, and make the mother lie on her left side during transport.",
+    "next_step_hi": "माँ को तुरंत 2 घंटे के भीतर नजदीकी बड़े अस्पताल (FRU/CHC) ले जाएं और रास्ते में उन्हें बाईं करवट लिटाएं।",
+    "action_steps_en": [
+      "Make the mother rest in the left lateral position immediately.",
+      "Ask about danger signs: severe headache, blurred vision, or upper abdominal pain.",
+      "Call 108/102 ambulance and refer immediately to First Referral Unit (FRU) / CHC.",
+      "Accompany the mother and inform the PHC Medical Officer immediately."
+    ]
+  },
+  "bp_above_140_90": {
+    "condition_tag": "preeclampsia",
+    "condition_name": "Hypertension / Preeclampsia Risk",
+    "min_risk_level": "high",
+    "clinical_reason_en": "Blood pressure is above the safe threshold (>= 140/90 mmHg), which is a primary sign of gestational hypertension or preeclampsia.",
+    "clinical_reason_hi": "माँ का बीपी सामान्य से अधिक (140/90 या ऊपर) है, जो गर्भावस्था में उच्च रक्तचाप (प्री-एक्लेमप्सिया) का संकेत हो सकता है।",
+    "next_step_en": "Recheck BP after 20 minutes of rest on her left side and refer her to the PHC Medical Officer within 24 hours for urine albumin and treatment.",
+    "next_step_hi": "माँ को 20 मिनट बाईं करवट आराम कराकर दोबारा बीपी जांचें और 24 घंटे के अंदर पीएचसी (PHC) डॉक्टर को दिखाएं।",
+    "action_steps_en": [
+      "Have the mother rest quietly for 20 minutes on her left side and re-measure BP.",
+      "Check for swelling in feet, face, or hands and ask about headaches.",
+      "Refer to PHC Medical Officer within 24 hours for urine protein test and antihypertensive evaluation."
+    ]
+  },
+  "bp_borderline": {
+    "condition_tag": "borderline_hypertension",
+    "condition_name": "Borderline Elevated Blood Pressure",
+    "min_risk_level": "mid",
+    "clinical_reason_en": "Blood pressure is in the borderline elevated range (130-139 / 85-89 mmHg) and needs close follow-up.",
+    "clinical_reason_hi": "माँ का बीपी थोड़ा बढ़ा हुआ है, इसलिए इस पर विशेष ध्यान देने की जरूरत है।",
+    "next_step_en": "Advise daily rest, reduce excessive salt intake, and recheck blood pressure within 3 to 5 days or consult the ANM.",
+    "next_step_hi": "माँ को पर्याप्त आराम करने व कम नमक खाने की सलाह दें, और 3 से 5 दिन में बीपी की दोबारा जांच करें।",
+    "action_steps_en": [
+      "Counsel on adequate rest (2 hours daytime rest in left lateral position).",
+      "Recheck blood pressure within 3 to 5 days.",
+      "Inform ANM during the next Village Health Sanitation and Nutrition Day (VHSND)."
+    ]
+  },
+  "bp_rising_trend": {
+    "condition_tag": "rising_bp_trend",
+    "condition_name": "Overall Rising Blood Pressure Trajectory Across Visits",
+    "min_risk_level": "mid",
+    "clinical_reason_en": "Blood pressure shows a significant upward trajectory compared to the mother's previous ANC visits.",
+    "clinical_reason_hi": "पिछली जांचों की तुलना में माँ का बीपी लगातार बढ़ता हुआ दिख रहा है, जिसे नजरअंदाज नहीं करना चाहिए।",
+    "next_step_en": "Schedule a PHC doctor checkup this week to evaluate the rising blood pressure trajectory and test urine albumin.",
+    "next_step_hi": "इस हफ्ते पीएचसी (PHC) जाकर डॉक्टर से जांच कराएं ताकि बढ़ते बीपी को समय पर रोका जा सके।",
+    "action_steps_en": [
+      "Compare full ANC visit history readings with the ANM/MO.",
+      "Schedule PHC Medical Officer review within 7 days.",
+      "Educate family on preeclampsia warning signs."
+    ]
+  },
+  "bp_rising_3_visits": {
+    "condition_tag": "rising_bp_trend",
+    "condition_name": "Consistent Rising Blood Pressure Trend Across Visits",
+    "min_risk_level": "mid",
+    "clinical_reason_en": "Systolic blood pressure has risen steadily across visits, showing a progressive upward trend.",
+    "clinical_reason_hi": "पिछली जांचों में माँ का बीपी लगातार बढ़ता हुआ दिख रहा है, जिसे नजरअंदाज नहीं करना चाहिए।",
+    "next_step_en": "Schedule a PHC doctor checkup this week to evaluate the rising blood pressure trend and test urine albumin.",
+    "next_step_hi": "इस हफ्ते पीएचसी (PHC) जाकर डॉक्टर से जांच कराएं ताकि बढ़ते बीपी को समय पर रोका जा सके।",
+    "action_steps_en": [
+      "Compare previous ANC card readings with the ANM/MO.",
+      "Schedule PHC Medical Officer review within 7 days.",
+      "Educate family on preeclampsia warning signs."
+    ]
+  },
+  "bs_rising_trend": {
+    "condition_tag": "rising_bs_trend",
+    "condition_name": "Rising Blood Sugar Trajectory Across Visits",
+    "min_risk_level": "mid",
+    "clinical_reason_en": "Blood glucose has risen significantly compared to the mother's earlier ANC visits.",
+    "clinical_reason_hi": "पिछली जांचों की तुलना में माँ की ब्लड शुगर बढ़ती हुई दिख रही है।",
+    "next_step_en": "Refer to the PHC for a fasting / OGTT blood sugar review and counsel on reducing sugar and refined carbohydrates.",
+    "next_step_hi": "शुगर की जांच के लिए पीएचसी (PHC) दिखाएं और माँ को मीठे से परहेज करने की सलाह दें।",
+    "action_steps_en": [
+      "Review historical blood glucose trend with ANM/MO.",
+      "Schedule OGTT screening at PHC.",
+      "Advise small, frequent high-fiber meals."
+    ]
+  },
+  "bs_severe_above_11_1": {
+    "condition_tag": "severe_hyperglycemia",
+    "condition_name": "Severe Hyperglycemia / Overt Gestational Diabetes",
+    "min_risk_level": "high",
+    "clinical_reason_en": "Blood glucose is severely elevated (>= 11.1 mmol/L), posing high risk to both mother and baby.",
+    "clinical_reason_hi": "माँ के खून में शुगर की मात्रा बहुत अधिक (11.1 mmol/L से ऊपर) है, जो माँ और बच्चे दोनों के लिए जोखिम भरा है।",
+    "next_step_en": "Refer urgently to the PHC Medical Officer within 24 hours for confirmatory fasting blood sugar test and medical management.",
+    "next_step_hi": "माँ को मीठी चीजों से परहेज करने को कहें और 24 घंटे के भीतर पीएचसी (PHC) डॉक्टर के पास जांच के लिए ले जाएं।",
+    "action_steps_en": [
+      "Refer immediately to PHC Medical Officer for GDM management and insulin evaluation.",
+      "Stop all sugary drinks and refined sweets immediately.",
+      "Ensure baby movement (fetal kick count) is monitored daily."
+    ]
+  },
+  "bs_above_7_8": {
+    "condition_tag": "gestational_diabetes",
+    "condition_name": "Elevated Blood Sugar / Gestational Diabetes Risk",
+    "min_risk_level": "mid",
+    "clinical_reason_en": "Blood sugar is elevated (>= 7.8 mmol/L), indicating possible gestational diabetes mellitus (GDM).",
+    "clinical_reason_hi": "माँ की ब्लड शुगर सामान्य से अधिक (7.8 mmol/L या ऊपर) है, जो गर्भावस्था में शुगर (GDM) का संकेत हो सकता है।",
+    "next_step_en": "Refer to the PHC for a 75g Oral Glucose Tolerance Test (OGTT) and advise small, frequent meals without added sugar.",
+    "next_step_hi": "शुगर की पक्की जांच (OGTT) के लिए पीएचसी जाएं और माँ को मीठा बंद करके थोड़ा-थोड़ा पौष्टिक भोजन लेने की सलाह दें।",
+    "action_steps_en": [
+      "Refer to PHC/VHSND for standard 75g OGTT screening.",
+      "Advise 5-6 small frequent meals rich in protein and fiber; avoid sugar and jaggery.",
+      "Encourage 30 minutes of light walking daily if approved by MO."
+    ]
+  },
+  "fever_above_100_4": {
+    "condition_tag": "maternal_pyrexia",
+    "condition_name": "High Maternal Fever / Suspected Infection",
+    "min_risk_level": "high",
+    "clinical_reason_en": "Body temperature is >= 100.4°F, indicating maternal fever that requires urgent evaluation for malaria, dengue, or urinary tract infection.",
+    "clinical_reason_hi": "माँ को तेज बुखार (100.4°F या अधिक) है, जो मलेरिया या किसी संक्रमण का संकेत हो सकता है।",
+    "next_step_en": "Give one Paracetamol 500mg tablet with water, apply tepid sponging, and refer to the PHC today for malaria RDT and urine testing.",
+    "next_step_hi": "माँ को तुरंत पैरासिटामोल (500mg) की एक गोली दें, माथे पर गीली पट्टी रखें और आज ही पीएचसी ले जाकर खून व पेशाब की जांच कराएं।",
+    "action_steps_en": [
+      "Administer Paracetamol 500mg and perform tepid water sponging.",
+      "Perform Rapid Diagnostic Test (RDT) for Malaria if available in ASHA kit.",
+      "Refer to PHC the same day to rule out UTI, malaria, dengue, or chorioamnionitis."
+    ]
+  },
+  "mild_fever": {
+    "condition_tag": "low_grade_fever",
+    "condition_name": "Low-Grade Maternal Fever",
+    "min_risk_level": "mid",
+    "clinical_reason_en": "Body temperature is mildly elevated (99.5°F - 100.3°F) and should be monitored closely.",
+    "clinical_reason_hi": "माँ के शरीर का तापमान थोड़ा गर्म (हल्का बुखार) है, जिस पर नजर रखना जरूरी है।",
+    "next_step_en": "Ensure the mother drinks plenty of clean fluids, recheck temperature in 4 hours, and visit the PHC if fever rises or burning urination occurs.",
+    "next_step_hi": "माँ को खूब पानी और तरल पदार्थ पिलाएं, 4 घंटे बाद दोबारा बुखार नापें और बढ़ने पर पीएचसी दिखाएं।",
+    "action_steps_en": [
+      "Encourage oral hydration (clean water, ORS, dal water).",
+      "Ask about burning sensation during urination or chills.",
+      "Recheck temperature in 4 hours; refer if >= 100.4°F."
+    ]
+  },
+  "tachycardia_above_110": {
+    "condition_tag": "maternal_tachycardia",
+    "condition_name": "Elevated Maternal Heart Rate (Tachycardia) / Abnormal Pulse",
+    "min_risk_level": "mid",
+    "clinical_reason_en": "Heart rate is outside the normal range (> 110 bpm or < 55 bpm), which can be linked to severe anemia, dehydration, or fever.",
+    "clinical_reason_hi": "माँ की धड़कन (पल्स) सामान्य से तेज या असामान्य है, जो खून की कमी (एनीमिया) या कमजोरी के कारण हो सकती है।",
+    "next_step_en": "Let the mother rest and drink water, check palms and eyes for pale color (anemia), and refer to the PHC for a hemoglobin test.",
+    "next_step_hi": "माँ को आराम कराएं व पानी पिलाएं, आँखों व हथेलियों में पीलेपन (खून की कमी) की जांच करें और पीएचसी में हीमोग्लोबिन जांच कराएं।",
+    "action_steps_en": [
+      "Check conjunctiva, tongue, and palms for pallor (anemia).",
+      "Recheck pulse after 15 minutes of rest and hydration.",
+      "Refer to PHC for Hemoglobin (Hb) estimation and MO evaluation."
+    ]
+  },
+  "routine_anc": {
+    "condition_tag": "normal_anc",
+    "condition_name": "Normal Antenatal Vitals",
+    "min_risk_level": "low",
+    "clinical_reason_en": "All maternal vitals (BP, blood sugar, temperature, and pulse) are within safe limits for pregnancy.",
+    "clinical_reason_hi": "माँ की सभी जांचें (बीपी, शुगर, तापमान और धड़कन) बिल्कुल सामान्य और सुरक्षित हैं।",
+    "next_step_en": "Continue daily Iron Folic Acid (IFA) and Calcium tablets, eat a nutritious diet, and attend the next scheduled ANC checkup.",
+    "next_step_hi": "माँ को रोजाना आयरन और कैल्शियम की गोली लेने, हरी सब्जियां व पौष्टिक आहार खाने और अगली जांच समय पर कराने की सलाह दें।",
+    "action_steps_en": [
+      "Verify compliance with daily IFA and Calcium supplementation.",
+      "Counsel on balanced nutrition, rest, and birth preparedness.",
+      "Schedule the next routine ANC visit."
+    ]
+  }
+}
+
