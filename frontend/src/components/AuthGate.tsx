@@ -83,8 +83,12 @@ export default function AuthGate({ onAuthenticated }: AuthGateProps) {
     <div className="min-h-screen bg-slate-50 flex flex-col justify-center items-center px-4">
       <div className="w-full max-w-md bg-white border border-slate-200 rounded-2xl shadow-sm p-8">
         <div className="mb-6 text-center">
-          <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-teal-700 text-white font-bold text-xl mb-3">
-            M
+          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-white border border-slate-200 shadow-xs p-1.5 mb-3">
+            <img
+              src="/logo.png"
+              alt="MatruRaksha Logo"
+              className="w-full h-full object-contain rounded-xl"
+            />
           </div>
           <h1 className="text-2xl font-bold text-slate-900">MatruRaksha AI</h1>
           <p className="text-sm text-slate-500 mt-1">

@@ -27,9 +27,13 @@ export default function Sidebar({
   return (
     <aside className="w-64 bg-white border-r border-slate-200 flex flex-col justify-between shrink-0 min-h-screen">
       <div>
-        <div className="p-6 border-b border-slate-200 flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl bg-teal-700 text-white flex items-center justify-center font-bold text-base">
-            M
+        <div className="p-5 border-b border-slate-200 flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-white border border-slate-200 shadow-xs p-1 flex items-center justify-center shrink-0">
+            <img
+              src="/logo.png"
+              alt="MatruRaksha Logo"
+              className="w-full h-full object-contain rounded-lg"
+            />
           </div>
           <div>
             <h2 className="text-base font-bold text-slate-900 leading-tight">MatruRaksha</h2>
