@@ -58,6 +58,16 @@ app.add_middleware(
 )
 
 
+@app.on_event("startup")
+def warmup_services():
+    try:
+        from app.services.db import get_firestore_client
+        get_firestore_client()
+        get_model_metadata()
+    except Exception:
+        pass
+
+
 @app.get("/health")
 def health_check():
     meta = get_model_metadata()
@@ -132,17 +142,8 @@ def get_all_visits_route(limit: int = 100, mother_id: str | None = None):
     return list_all_visits(limit=limit, mother_id=mother_id)
 
 
-def _bg_synthesize_audio(visit_id: str, mother_id: str, hindi_text: str) -> None:
-    try:
-        audio_b64 = synthesize_hindi_speech(hindi_text)
-        if audio_b64 and len(audio_b64) > 500:
-            update_visit_audio(visit_id, mother_id, audio_b64)
-    except Exception:
-        pass
-
-
 @app.post("/evaluate-visit", response_model=EvaluateVisitResponse)
-def evaluate_visit_route(req: EvaluateVisitRequest, background_tasks: BackgroundTasks):
+def evaluate_visit_route(req: EvaluateVisitRequest):
     profile = get_mother_profile(req.mother_id)
     age = req.age
     past_visits = get_mother_visits(req.mother_id, limit=10)
@@ -194,10 +195,6 @@ def evaluate_visit_route(req: EvaluateVisitRequest, background_tasks: Background
     }
 
     save_result = save_visit_and_update_mother(visit_doc)
-
-    background_tasks.add_task(
-        _bg_synthesize_audio, visit_id, req.mother_id, ai_explanation["hindi_text"]
-    )
 
     return EvaluateVisitResponse(
         **visit_doc,

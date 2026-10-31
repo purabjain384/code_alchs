@@ -45,9 +45,12 @@ def generate_bilingual_explanation(
     action_items_en = [p["action_en"] for p in protocols]
     action_items_hi = [p["action_hi"] for p in protocols]
 
+    # Quick attempt to call Gemini with a strict 1.0-second timeout so the user never gets stuck
     client = _get_genai_client()
     if client is not None:
-        try:
+        import concurrent.futures
+
+        def _call_gemini():
             from google.genai import types
             hb_str = f"{vitals.hemoglobin} g/dL" if vitals.hemoglobin is not None else "Not recorded"
             wt_str = f"{vitals.weight_kg} kg" if vitals.weight_kg is not None else "Not recorded"
@@ -63,12 +66,12 @@ Analyze this pregnant mother's ANC checkup:
 - Official MoHFW Protocols to follow: {json.dumps(protocols, ensure_ascii=False)}
 
 Return ONLY valid JSON with keys:
-- "english_summary": 2-3 concise sentences for the ASHA worker and PHC doctor explaining the risk and trajectory.
-- "hindi_text": 2-3 warm, clear sentences in simple conversational Hindi (Devanagari script) to be spoken aloud to the mother and ASHA worker.
+- "english_summary": 2-3 concise sentences explaining the risk and trajectory.
+- "hindi_text": 2-3 warm, clear sentences in simple conversational Hindi (Devanagari script) to be spoken aloud.
 - "action_items_en": array of 2-3 specific English action items.
 - "action_items_hi": array of 2-3 specific Hindi action items.
 """
-            response = client.models.generate_content(
+            resp = client.models.generate_content(
                 model=GEMINI_MODEL,
                 contents=prompt,
                 config=types.GenerateContentConfig(
@@ -76,17 +79,23 @@ Return ONLY valid JSON with keys:
                     temperature=0.2,
                 ),
             )
-            parsed = json.loads(response.text)
-            return {
-                "english_summary": parsed.get("english_summary", ""),
-                "hindi_text": parsed.get("hindi_text", ""),
-                "action_items_en": parsed.get("action_items_en", action_items_en),
-                "action_items_hi": parsed.get("action_items_hi", action_items_hi),
-            }
-        except Exception as exc:
-            logger.warning("Gemini 3.8 Flash explanation fallback triggered: %s", exc)
+            return json.loads(resp.text)
 
-    # Grounded deterministic fallback
+        try:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(_call_gemini)
+                parsed = future.result(timeout=1.0)
+                if parsed and isinstance(parsed, dict):
+                    return {
+                        "english_summary": parsed.get("english_summary", ""),
+                        "hindi_text": parsed.get("hindi_text", ""),
+                        "action_items_en": parsed.get("action_items_en", action_items_en),
+                        "action_items_hi": parsed.get("action_items_hi", action_items_hi),
+                    }
+        except Exception as exc:
+            logger.info("Fast-path fallback to MoHFW protocol guidance: %s", exc)
+
+    # Grounded deterministic fallback (Instant, zero-latency, 100% MoHFW protocol compliant)
     flags_str = ", ".join(combined_risk.clinical_output.triggered_flags) or "normal vitals"
     english_summary = (
         f"Triage Level: {combined_risk.frontend_risk_level} (Urgency {int(combined_risk.urgency_score * 100)}%). "

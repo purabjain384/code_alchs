@@ -146,9 +146,6 @@ export default function HomePage() {
     setAnalysisStep(1);
 
     try {
-      setTimeout(() => setAnalysisStep(2), 250);
-      setTimeout(() => setAnalysisStep(3), 500);
-
       const response = await evaluateAncVisit({
         mother_id: user.mother_id,
         age: user.age,
@@ -165,7 +162,6 @@ export default function HomePage() {
         symptoms: selectedSymptoms,
       });
 
-      setAnalysisStep(4);
       setActiveResult(response);
       setIsAnalyzing(false);
       setActiveTab('result');
