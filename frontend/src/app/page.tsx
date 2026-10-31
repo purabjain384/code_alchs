@@ -48,7 +48,6 @@ export default function HomePage() {
 
   // Analysis -> Result State
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [analysisStep, setAnalysisStep] = useState(0);
   const [activeResult, setActiveResult] = useState<VisitRecord | null>(null);
 
   // Restore session if present and valid (must include mother_id & age)
@@ -143,7 +142,6 @@ export default function HomePage() {
     const tempF = tempUnit === 'C' ? Number(((tempRaw * 9) / 5 + 32).toFixed(1)) : tempRaw;
 
     setIsAnalyzing(true);
-    setAnalysisStep(1);
 
     try {
       const response = await evaluateAncVisit({
@@ -220,37 +218,7 @@ export default function HomePage() {
       />
 
       <main className="flex-1 p-8 max-w-5xl mx-auto w-full">
-        {/* ==================== ANALYSIS PROGRESS SCREEN ==================== */}
-        {isAnalyzing ? (
-          <div className="max-w-xl mx-auto mt-16 bg-white border border-slate-200 rounded-2xl p-8 shadow-xs text-center">
-            <div className="w-12 h-12 rounded-full border-4 border-teal-700 border-t-transparent animate-spin mx-auto mb-5" />
-            <h2 className="text-xl font-bold text-slate-900 mb-2">
-              Analyzing Your Checkup...
-            </h2>
-            <p className="text-sm text-slate-500 mb-6">
-              Evaluating your vitals and comparing with your past checkups
-            </p>
-            <div className="space-y-3 text-left text-sm">
-              {[
-                '1. Evaluating your blood pressure, blood sugar, temperature & heart rate...',
-                '2. Checking maternal safety thresholds...',
-                '3. Comparing blood pressure trend across your previous checkups...',
-                '4. Preparing your English & Hindi care guidance and voice advisory...',
-              ].map((label, idx) => (
-                <div
-                  key={label}
-                  className={`p-3 rounded-xl border ${
-                    analysisStep >= idx + 1
-                      ? 'bg-teal-50 border-teal-200 text-teal-900 font-medium'
-                      : 'bg-slate-50 border-slate-200 text-slate-400'
-                  }`}
-                >
-                  {label}
-                </div>
-              ))}
-            </div>
-          </div>
-        ) : activeTab === 'dashboard' ? (
+        {activeTab === 'dashboard' ? (
           /* ==================== VIEW 1: MOTHER'S DASHBOARD ==================== */
           <div className="space-y-8">
             <div className="flex flex-wrap items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-xs">
@@ -648,9 +616,20 @@ export default function HomePage() {
 
               <button
                 type="submit"
-                className="w-full py-3.5 rounded-xl bg-teal-700 hover:bg-teal-800 text-white font-semibold text-sm shadow-xs transition cursor-pointer"
+                disabled={isAnalyzing}
+                className="w-full py-3.5 rounded-xl bg-teal-700 hover:bg-teal-800 disabled:bg-teal-900 text-white font-semibold text-sm shadow-xs transition cursor-pointer flex items-center justify-center gap-2"
               >
-                Analyze My Checkup →
+                {isAnalyzing ? (
+                  <>
+                    <svg className="animate-spin h-4 w-4 text-white" viewBox="0 0 24 24" fill="none">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                    </svg>
+                    <span>Evaluating your checkup...</span>
+                  </>
+                ) : (
+                  'Analyze My Checkup →'
+                )}
               </button>
             </form>
           </div>

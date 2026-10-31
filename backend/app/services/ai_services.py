@@ -38,74 +38,25 @@ def generate_bilingual_explanation(
     combined_risk: CombinedRiskOutput,
 ) -> Dict[str, Any]:
     """
-    Uses gemini-3.8-flash to synthesize a bilingual (English + Simple Hindi) explanation
-    grounded strictly in the matched MoHFW protocols and multi-visit trajectory analysis.
+    Synthesizes a bilingual (English + Simple Hindi) explanation grounded strictly
+    in the matched MoHFW protocols and multi-visit trajectory analysis.
+    Instant execution (0ms network delay).
     """
     protocols = combined_risk.clinical_output.matched_protocols
     action_items_en = [p["action_en"] for p in protocols]
     action_items_hi = [p["action_hi"] for p in protocols]
 
-    # Quick attempt to call Gemini with a strict 1.0-second timeout so the user never gets stuck
-    client = _get_genai_client()
-    if client is not None:
-        import concurrent.futures
-
-        def _call_gemini():
-            from google.genai import types
-            hb_str = f"{vitals.hemoglobin} g/dL" if vitals.hemoglobin is not None else "Not recorded"
-            wt_str = f"{vitals.weight_kg} kg" if vitals.weight_kg is not None else "Not recorded"
-            prompt = f"""
-You are a Clinical Decision Support AI assisting a rural Indian ASHA health worker under National Health Mission (MoHFW) guidelines.
-Analyze this pregnant mother's ANC checkup:
-- Age: {age} years
-- Vitals: BP {vitals.systolic}/{vitals.diastolic} mmHg, Blood Sugar {vitals.blood_sugar_mmol} mmol/L, Body Temp {vitals.body_temp_f} °F, Heart Rate {vitals.heart_rate} bpm (Hemoglobin: {hb_str}, Weight: {wt_str})
-- Symptoms: {', '.join(symptoms) if symptoms else 'None'}
-- Final Triage Risk Level: {combined_risk.frontend_risk_level} (Urgency: {combined_risk.urgency_score})
-- Triggered Clinical Flags: {combined_risk.clinical_output.triggered_flags}
-- Multi-Visit Trajectory: {combined_risk.trend_output.trend_summary}
-- Official MoHFW Protocols to follow: {json.dumps(protocols, ensure_ascii=False)}
-
-Return ONLY valid JSON with keys:
-- "english_summary": 2-3 concise sentences explaining the risk and trajectory.
-- "hindi_text": 2-3 warm, clear sentences in simple conversational Hindi (Devanagari script) to be spoken aloud.
-- "action_items_en": array of 2-3 specific English action items.
-- "action_items_hi": array of 2-3 specific Hindi action items.
-"""
-            resp = client.models.generate_content(
-                model=GEMINI_MODEL,
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    response_mime_type="application/json",
-                    temperature=0.2,
-                ),
-            )
-            return json.loads(resp.text)
-
-        try:
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-                future = executor.submit(_call_gemini)
-                parsed = future.result(timeout=1.0)
-                if parsed and isinstance(parsed, dict):
-                    return {
-                        "english_summary": parsed.get("english_summary", ""),
-                        "hindi_text": parsed.get("hindi_text", ""),
-                        "action_items_en": parsed.get("action_items_en", action_items_en),
-                        "action_items_hi": parsed.get("action_items_hi", action_items_hi),
-                    }
-        except Exception as exc:
-            logger.info("Fast-path fallback to MoHFW protocol guidance: %s", exc)
-
-    # Grounded deterministic fallback (Instant, zero-latency, 100% MoHFW protocol compliant)
-    flags_str = ", ".join(combined_risk.clinical_output.triggered_flags) or "normal vitals"
+    # Grounded deterministic clinical translation (Instant, zero-latency, 100% MoHFW protocol compliant)
+    flags_str = ", ".join(combined_risk.clinical_output.triggered_flags) or "Normal clinical vitals"
     english_summary = (
-        f"Triage Level: {combined_risk.frontend_risk_level} (Urgency {int(combined_risk.urgency_score * 100)}%). "
+        f"Triage Level: {combined_risk.frontend_risk_level} (Urgency Score: {int(combined_risk.urgency_score * 100)}%). "
         f"Key clinical findings: {flags_str}. {combined_risk.trend_output.trend_summary} "
-        f"{action_items_en[0]}"
+        f"{action_items_en[0] if action_items_en else 'Routine antenatal care recommended.'}"
     )
     hb_part = f" और हीमोग्लोबिन {vitals.hemoglobin} ग्राम" if vitals.hemoglobin is not None else ""
     hindi_text = (
         f"नमस्ते बहनजी, आज की जांच में आपका ब्लड प्रेशर {vitals.systolic}/{vitals.diastolic} mmHg{hb_part} दर्ज किया गया है। "
-        f"{' '.join(action_items_hi[:2])}"
+        f"{' '.join(action_items_hi[:2]) if action_items_hi else 'आपकी सभी जांचें सामान्य हैं, नियमित समय पर अगला चेकअप करवाएं।'}"
     )
     return {
         "english_summary": english_summary,
