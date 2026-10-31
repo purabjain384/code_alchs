@@ -314,6 +314,8 @@ export default function SupervisorDashboardPage() {
                                 src={mother.avatarUrl}
                                 alt={mother.name}
                                 fill
+                                sizes="44px"
+                                unoptimized
                                 className="object-cover"
                               />
                             </div>

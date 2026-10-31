@@ -37,6 +37,8 @@ export const MotherCard: React.FC<MotherCardProps> = ({
               src={mother.avatarUrl}
               alt={mother.name}
               fill
+              sizes="56px"
+              unoptimized
               className="object-cover"
             />
             {mother.riskLevel === 'HIGH' && (

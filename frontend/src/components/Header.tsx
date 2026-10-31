@@ -54,6 +54,7 @@ export const Header: React.FC<HeaderProps> = ({
                 alt="MatruRaksha Logo"
                 width={140}
                 height={32}
+                unoptimized
                 className="h-7 w-auto object-contain"
                 priority
               />
@@ -196,6 +197,8 @@ export const Header: React.FC<HeaderProps> = ({
               src={activeRole === 'supervisor' ? DOCTOR_PROFILE_URL : DEFAULT_ASHA_AVATAR_URL}
               alt="Profile"
               fill
+              sizes="32px"
+              unoptimized
               className="object-cover"
             />
           </div>

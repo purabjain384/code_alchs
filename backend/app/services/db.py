@@ -16,8 +16,8 @@ _MEMORY_SOS: List[Dict[str, Any]] = []
 _PENDING_OTPS: Dict[str, str] = {}
 
 DEFAULT_AVATARS = [
-    "https://lh3.googleusercontent.com/aida-public/AB6AXuB-qZZP5-DvCb79lGhuvaOca3JNHD09ts7FPxBHpSrr0cMfzUl_nLn6tz9mp050qnlAXTKMiUH0WWWNeumuz64lTVuhmOIrBysaVCUP_R_Dvk9p2tkPVk9k28IN_bMU92KkJmtQjdgTYokB3oZmnX82PkIScFm6FoPgmFjiv2BR4gGN5tkbtpUXIZ-zBc2pLWrGHf-omtEC33NXfrwulXmnMbJRpN9OdupQS7bNjZjw",
-    "https://lh3.googleusercontent.com/aida-public/AB6AXuD2xH_bfW1bW0y52fF7R6t7A-yO-pB8O3A6L4tG5zH1dJ2X3rT7c8v9bN0m1K2L3P4Q5R6S7T8U9V0W1X2Y3Z4a5b6c7d8e9f0g1h2i3j4k5l6m7n8o9p0q1r2s3t4u5v6w7x8y9z0A1B2C3D4E5F6G7H8I9J0K1L2M3N4O5P6Q7R8S9T0U1V2W3X4Y5Z",
+    "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='100' height='100' viewBox='0 0 100 100'><circle cx='50' cy='50' r='50' fill='%23fef3c7'/><text x='50' y='58' font-family='system-ui, sans-serif' font-weight='bold' font-size='28' fill='%2392400e' text-anchor='middle'>MB</text></svg>",
+    "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='100' height='100' viewBox='0 0 100 100'><circle cx='50' cy='50' r='50' fill='%23dcfce7'/><text x='50' y='58' font-family='system-ui, sans-serif' font-weight='bold' font-size='28' fill='%23166534' text-anchor='middle'>SD</text></svg>",
 ]
 
 

@@ -1,5 +1,8 @@
+import os
 import pytest
 from fastapi.testclient import TestClient
+
+os.environ["USE_MOCK_AI"] = "true"
 
 from app.main import app
 from app.services.db import reset_memory_stores

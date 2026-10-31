@@ -1,10 +1,17 @@
+/**
+ * MatruRaksha Brand & Fallback Assets
+ * Pure, self-contained SVG Data URIs.
+ * No external CDN dependencies, preventing Next.js 400 upstream image errors.
+ */
+
 export const MATRURAKSHA_LOGO_URL =
-  'https://lh3.googleusercontent.com/aida-public/AB6AXuA9rP9vT8l7eG-6iJ1u2Q3m4N5p6B7v8C9x0Z1a2S3d4F5g6H7j8K9l0Q1w2E3r4T5y6U7i8O9p0A1s2D3f4G5h6J7k8L9z0X1c2V3b4N5m6M7n8B9v0C1x2Z3a4S5d6F7g8H9j0K1l2Q3w4E5r6T7y8U9i0O1p2A3s4D5f6G7h8J9k0L1z2X3c4V5b6N7m8';
+  'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="160" height="40" viewBox="0 0 160 40"><rect width="160" height="40" rx="6" fill="%230f172a"/><text x="12" y="25" fill="%23ffffff" font-family="system-ui, sans-serif" font-weight="bold" font-size="16">MatruRaksha</text><circle cx="140" cy="20" r="4" fill="%2310b981"/></svg>';
 
 export const DOCTOR_PROFILE_URL =
-  'https://lh3.googleusercontent.com/aida-public/AB6AXuC8kM7nL6pQ5vR4tW3yE2uI1oP0aZ9xS8dF7gH6jK5lQ4wE3rT2yU1iO0pA9sD8fG7hJ6kL5zX4cV3bN2mM1nB0vC9xZ8aS7dF6gH5jK4lQ3wE2rT1yU0iO9pA8sD7fG6hJ5kL4zX3cV2bN1mM0nB9vC8xZ7aS6dF5gH4jK3lQ2wE1rT0yU9iO8pA7sD6fG5hJ4kL3';
+  'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100"><circle cx="50" cy="50" r="50" fill="%23e2e8f0"/><text x="50" y="58" font-family="system-ui, sans-serif" font-weight="bold" font-size="28" fill="%23334155" text-anchor="middle">DR</text></svg>';
 
 export const DEFAULT_ASHA_AVATAR_URL =
-  'https://lh3.googleusercontent.com/aida-public/AB6AXuB-qZZP5-DvCb79lGhuvaOca3JNHD09ts7FPxBHpSrr0cMfzUl_nLn6tz9mp050qnlAXTKMiUH0WWWNeumuz64lTVuhmOIrBysaVCUP_R_Dvk9p2tkPVk9k28IN_bMU92KkJmtQjdgTYokB3oZmnX82PkIScFm6FoPgmFjiv2BR4gGN5tkbtpUXIZ-zBc2pLWrGHf-omtEC33NXfrwulXmnMbJRpN9OdupQS7bNjZjw';
+  'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100"><circle cx="50" cy="50" r="50" fill="%23dcfce7"/><text x="50" y="58" font-family="system-ui, sans-serif" font-weight="bold" font-size="28" fill="%23166534" text-anchor="middle">AS</text></svg>';
 
-export const DEFAULT_MOTHER_AVATAR_URL = DEFAULT_ASHA_AVATAR_URL;
+export const DEFAULT_MOTHER_AVATAR_URL =
+  'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100"><circle cx="50" cy="50" r="50" fill="%23fef3c7"/><text x="50" y="58" font-family="system-ui, sans-serif" font-weight="bold" font-size="28" fill="%2392400e" text-anchor="middle">MB</text></svg>';
