@@ -1,8 +1,10 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
+import { ConfirmationResult } from 'firebase/auth';
 import { AuthUser } from '@/types';
 import { sendPhoneOtp, verifyPhoneOtp } from '@/lib/api';
+import { formatE164Phone, triggerFirebasePhoneOtp } from '@/lib/firebase';
 
 interface AuthGateProps {
   onAuthenticated: (user: AuthUser) => void;
@@ -17,17 +19,35 @@ export default function AuthGate({ onAuthenticated }: AuthGateProps) {
   const [otp, setOtp] = useState('');
   const [otpSent, setOtpSent] = useState(false);
   const [otpHint, setOtpHint] = useState('');
+  const [firebaseSmsSent, setFirebaseSmsSent] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const confirmationRef = useRef<ConfirmationResult | null>(null);
+
+  const handleFillDemo = () => {
+    setError('');
+    setPhone('9876543210');
+    if (mode === 'signup') {
+      setName('Sunita Sharma');
+      setAge('26');
+      setGestationalWeek('24');
+    }
+    if (otpSent) {
+      setOtp('123456');
+    }
+  };
 
   const handleSendOtp = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-    const cleanPhone = phone.trim();
-    if (cleanPhone.length < 10) {
-      setError('Please enter a valid 10-digit mobile number.');
+    const rawDigits = phone.replace(/\D/g, '');
+    const cleanPhone = rawDigits.length === 10 ? rawDigits : rawDigits.slice(-10);
+
+    if (cleanPhone.length !== 10) {
+      setError('Please enter a valid 10-digit Indian mobile number.');
       return;
     }
+
     if (mode === 'signup') {
       if (!name.trim()) {
         setError('Please enter your full name.');
@@ -42,10 +62,30 @@ export default function AuthGate({ onAuthenticated }: AuthGateProps) {
 
     setLoading(true);
     try {
-      const res = await sendPhoneOtp(cleanPhone);
+      const e164 = `+91${cleanPhone}`;
+      // Request backend OTP and attempt Firebase Phone SMS in parallel
+      const [backendRes, fbConfirmation] = await Promise.all([
+        sendPhoneOtp(e164),
+        triggerFirebasePhoneOtp(e164, 'recaptcha-container'),
+      ]);
+
+      confirmationRef.current = fbConfirmation;
+      const fallbackCode = backendRes.demo_otp_hint || '123456';
+      setOtpHint(fallbackCode);
       setOtpSent(true);
-      setOtpHint(res.demo_otp_hint);
-      setOtp(res.demo_otp_hint);
+
+      if (fbConfirmation) {
+        setFirebaseSmsSent(true);
+        // Pre-fill fallback if it's the demo number
+        if (cleanPhone === '9876543210') {
+          setOtp('123456');
+        } else {
+          setOtp('');
+        }
+      } else {
+        setFirebaseSmsSent(false);
+        setOtp(fallbackCode);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to send OTP.');
     } finally {
@@ -56,20 +96,49 @@ export default function AuthGate({ onAuthenticated }: AuthGateProps) {
   const handleVerifyOtp = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-    if (!otp.trim()) {
+    const enteredOtp = otp.trim();
+    if (!enteredOtp) {
       setError('Please enter the 6-digit OTP.');
       return;
     }
 
     setLoading(true);
     try {
+      let firebaseIdToken: string | undefined;
+
+      // Verify real Firebase SMS code if available and user entered non-fallback OTP
+      if (confirmationRef.current && enteredOtp !== '123456') {
+        try {
+          const credential = await confirmationRef.current.confirm(enteredOtp);
+          if (credential?.user?.getIdToken) {
+            firebaseIdToken = await credential.user.getIdToken();
+          }
+        } catch (fbErr) {
+          console.warn('Firebase confirmation failed, trying backend verification:', fbErr);
+        }
+      } else if (confirmationRef.current && enteredOtp === '123456') {
+        // Attempt confirmation in case 123456 is set as test code in Firebase Console
+        try {
+          const credential = await confirmationRef.current.confirm(enteredOtp);
+          if (credential?.user?.getIdToken) {
+            firebaseIdToken = await credential.user.getIdToken();
+          }
+        } catch {
+          // Fall back gracefully to backend verification
+        }
+      }
+
+      const rawDigits = phone.replace(/\D/g, '');
+      const cleanPhone = `+91${rawDigits.slice(-10)}`;
+
       const user = await verifyPhoneOtp({
-        phone: phone.trim(),
-        otp: otp.trim(),
+        phone: cleanPhone,
+        otp: enteredOtp,
         name: mode === 'signup' ? name.trim() : undefined,
         age: mode === 'signup' && age ? Number(age) : undefined,
         gestational_week:
           mode === 'signup' && gestationalWeek ? Number(gestationalWeek) : undefined,
+        firebase_id_token: firebaseIdToken,
       });
       onAuthenticated(user);
     } catch (err) {
@@ -80,7 +149,8 @@ export default function AuthGate({ onAuthenticated }: AuthGateProps) {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col justify-center items-center px-4">
+    <div className="min-h-screen bg-slate-50 flex flex-col justify-center items-center px-4 py-8">
+      <div id="recaptcha-container" />
       <div className="w-full max-w-md bg-white border border-slate-200 rounded-2xl shadow-sm p-8">
         <div className="mb-6 text-center">
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-white border border-slate-200 shadow-xs p-1.5 mb-3">
@@ -97,7 +167,7 @@ export default function AuthGate({ onAuthenticated }: AuthGateProps) {
         </div>
 
         {/* Mode Toggle */}
-        <div className="grid grid-cols-2 bg-slate-100 p-1 rounded-xl mb-6">
+        <div className="grid grid-cols-2 bg-slate-100 p-1 rounded-xl mb-4">
           <button
             type="button"
             onClick={() => {
@@ -130,6 +200,26 @@ export default function AuthGate({ onAuthenticated }: AuthGateProps) {
           </button>
         </div>
 
+        {/* Compact Demo Credentials Auto-Fill */}
+        <div className="mb-4 flex items-center justify-between p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-slate-500">Demo:</span>
+            <span className="font-mono font-medium text-slate-900 whitespace-nowrap">+91 9876543210</span>
+            <span className="text-slate-300">•</span>
+            <span className="text-slate-500">OTP:</span>
+            <span className="font-mono font-bold text-slate-800 bg-white px-1.5 py-0.5 rounded border border-slate-300">
+              123456
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={handleFillDemo}
+            className="px-2.5 py-1 bg-teal-700 hover:bg-teal-800 text-white font-medium rounded-lg text-[11px] transition cursor-pointer shrink-0"
+          >
+            Auto-Fill
+          </button>
+        </div>
+
         {error && (
           <div className="mb-4 p-3 rounded-lg bg-red-50 border border-red-200 text-xs font-medium text-red-700">
             {error}
@@ -149,7 +239,7 @@ export default function AuthGate({ onAuthenticated }: AuthGateProps) {
                     required
                     value={name}
                     onChange={(e) => setName(e.target.value)}
-                    placeholder="Enter your full name"
+                    placeholder="e.g. Sunita Sharma"
                     className="w-full px-3.5 py-2.5 text-sm rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-teal-600"
                   />
                 </div>
@@ -180,7 +270,7 @@ export default function AuthGate({ onAuthenticated }: AuthGateProps) {
                       max={42}
                       value={gestationalWeek}
                       onChange={(e) => setGestationalWeek(e.target.value)}
-                      placeholder="Optional (1–42)"
+                      placeholder="e.g. 24 (1–42)"
                       className="w-full px-3.5 py-2.5 text-sm rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-teal-600"
                     />
                   </div>
@@ -192,14 +282,20 @@ export default function AuthGate({ onAuthenticated }: AuthGateProps) {
               <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1.5">
                 Mobile Number *
               </label>
-              <input
-                type="tel"
-                required
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                placeholder="10-digit mobile number"
-                className="w-full px-3.5 py-2.5 text-sm rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-teal-600"
-              />
+              <div className="flex items-center rounded-xl border border-slate-300 focus-within:ring-2 focus-within:ring-teal-600 focus-within:border-transparent overflow-hidden bg-white shadow-2xs">
+                <span className="inline-flex items-center px-3.5 py-2.5 bg-slate-100 text-slate-700 font-semibold text-sm border-r border-slate-300 select-none whitespace-nowrap shrink-0">
+                  +91
+                </span>
+                <input
+                  type="tel"
+                  required
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                  placeholder="9876543210"
+                  maxLength={10}
+                  className="w-full px-3.5 py-2.5 text-sm font-mono text-slate-900 focus:outline-none placeholder:text-slate-400"
+                />
+              </div>
             </div>
 
             <button
@@ -212,16 +308,22 @@ export default function AuthGate({ onAuthenticated }: AuthGateProps) {
           </form>
         ) : (
           <form onSubmit={handleVerifyOtp} className="space-y-4">
-            {otpHint && (
-              <div className="p-3 rounded-lg bg-teal-50 border border-teal-200 text-xs text-teal-800">
-                Verification OTP sent to <strong>{phone}</strong>. Code:{' '}
-                <span className="font-mono font-bold underline">{otpHint}</span>
-              </div>
-            )}
+            <div className="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs">
+              <span className="text-slate-700 whitespace-nowrap">
+                OTP sent to <strong className="font-mono">+91 {phone}</strong>
+              </span>
+              <button
+                type="button"
+                onClick={() => setOtp('123456')}
+                className="px-2.5 py-1 bg-teal-700 hover:bg-teal-800 text-white font-medium rounded-lg text-[11px] transition cursor-pointer shrink-0 ml-2"
+              >
+                Use 123456
+              </button>
+            </div>
 
             <div>
               <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1.5">
-                6-Digit OTP
+                6-Digit Verification OTP *
               </label>
               <input
                 type="text"
@@ -229,8 +331,8 @@ export default function AuthGate({ onAuthenticated }: AuthGateProps) {
                 maxLength={6}
                 value={otp}
                 onChange={(e) => setOtp(e.target.value)}
-                placeholder="Enter 6-digit OTP"
-                className="w-full px-3.5 py-2.5 text-sm font-mono tracking-widest rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-teal-600"
+                placeholder="123456"
+                className="w-full px-3.5 py-2.5 text-sm font-mono tracking-widest text-center rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-teal-600"
               />
             </div>
 
@@ -247,10 +349,12 @@ export default function AuthGate({ onAuthenticated }: AuthGateProps) {
               onClick={() => {
                 setOtpSent(false);
                 setOtp('');
+                setFirebaseSmsSent(false);
+                confirmationRef.current = null;
               }}
               className="w-full py-2 text-xs font-medium text-slate-500 hover:text-slate-800 cursor-pointer"
             >
-              Back
+              Back to Mobile Number
             </button>
           </form>
         )}

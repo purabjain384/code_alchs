@@ -53,10 +53,23 @@ def reset_memory_stores() -> None:
 
 # ==================== AUTHENTICATION (PHONE + OTP + NAME) ====================
 
+def normalize_phone_number(phone: str) -> str:
+    cleaned = (phone or "").strip()
+    digits = "".join(ch for ch in cleaned if ch.isdigit())
+    if len(digits) == 10:
+        return f"+91{digits}"
+    if len(digits) == 12 and digits.startswith("91"):
+        return f"+{digits}"
+    if len(digits) > 10:
+        return f"+{digits}"
+    return cleaned or phone
+
+
 def create_phone_otp(phone: str) -> str:
-    clean_phone = phone.strip()
+    clean_phone = normalize_phone_number(phone)
     otp = "123456"
     _PENDING_OTPS[clean_phone] = otp
+    _PENDING_OTPS[phone.strip()] = otp
     return otp
 
 
@@ -68,43 +81,58 @@ def verify_phone_otp_and_upsert_user(
     gestational_week: Optional[int] = None,
     firebase_id_token: Optional[str] = None,
 ) -> Dict[str, Any]:
-    clean_phone = phone.strip()
+    raw_phone = phone.strip()
+    clean_phone = normalize_phone_number(raw_phone)
 
     verified_uid = None
     if firebase_id_token:
         try:
+            import firebase_admin
             import firebase_admin.auth as fb_auth
+
+            if not firebase_admin._apps:
+                get_firestore_client()
+            if not firebase_admin._apps:
+                project_id = os.getenv("FIREBASE_PROJECT_ID", "gdgcodealchemist")
+                firebase_admin.initialize_app(options={"projectId": project_id})
+
             decoded = fb_auth.verify_id_token(firebase_id_token)
             verified_uid = decoded.get("uid")
-            clean_phone = decoded.get("phone_number") or clean_phone
         except Exception as exc:
             logger.warning("Firebase ID token verification fallback to OTP check: %s", exc)
 
     if not verified_uid:
-        expected_otp = _PENDING_OTPS.get(clean_phone, "123456")
+        expected_otp = _PENDING_OTPS.get(raw_phone) or _PENDING_OTPS.get(clean_phone, "123456")
         if otp.strip() != expected_otp and otp.strip() != "123456":
             raise ValueError("Invalid OTP code. Please enter the 6-digit OTP.")
 
     db = get_firestore_client()
-    existing = _MEMORY_USERS.get(clean_phone)
+    existing = _MEMORY_USERS.get(raw_phone) or _MEMORY_USERS.get(clean_phone)
     if db is not None and not existing:
         try:
-            doc = db.collection("users").document(clean_phone).get()
+            doc = db.collection("users").document(raw_phone).get()
+            if not doc.exists and clean_phone != raw_phone:
+                doc = db.collection("users").document(clean_phone).get()
             if doc.exists:
                 existing = doc.to_dict()
         except Exception as exc:
             logger.warning("Firestore user lookup failed: %s", exc)
 
-    digits_only = "".join(ch for ch in clean_phone if ch.isdigit())
+    digits_only = "".join(ch for ch in raw_phone if ch.isdigit())
     suffix = digits_only[-6:] if len(digits_only) >= 6 else uuid.uuid4().hex[:6]
     mother_id = (existing.get("mother_id") if existing else None) or f"MR-{suffix}"
+
+    is_demo_number = raw_phone in ("9876543210", "+919876543210")
+    default_demo_name = "Sunita Sharma" if is_demo_number else f"Mother {digits_only[-4:] if len(digits_only) >= 4 else '0000'}"
+    default_demo_age = 26
+    default_demo_week = 24 if is_demo_number else None
 
     existing_mother = get_mother(mother_id)
     resolved_name = (
         (name or "").strip()
         or (existing.get("name") if existing else "")
         or (existing_mother.get("name") if existing_mother else "")
-        or f"Mother {clean_phone[-4:]}"
+        or default_demo_name
     )
     resolved_age = (
         int(age)
@@ -112,7 +140,7 @@ def verify_phone_otp_and_upsert_user(
         else int(
             (existing.get("age") if existing and existing.get("age") else None)
             or (existing_mother.get("age") if existing_mother and existing_mother.get("age") else None)
-            or 26
+            or default_demo_age
         )
     )
     resolved_week = (
@@ -121,7 +149,7 @@ def verify_phone_otp_and_upsert_user(
         else (
             existing.get("gestational_week")
             if existing and existing.get("gestational_week") is not None
-            else (existing_mother.get("gestationalWeek") if existing_mother else None)
+            else (existing_mother.get("gestationalWeek") if existing_mother else default_demo_week)
         )
     )
 
@@ -130,13 +158,13 @@ def verify_phone_otp_and_upsert_user(
             "id": mother_id,
             "name": resolved_name,
             "age": resolved_age,
-            "phone": clean_phone,
+            "phone": raw_phone,
             "gestationalWeek": resolved_week,
         })
     else:
         existing_mother["name"] = resolved_name
         existing_mother["age"] = resolved_age
-        existing_mother["phone"] = clean_phone
+        existing_mother["phone"] = raw_phone
         if resolved_week is not None:
             existing_mother["gestationalWeek"] = resolved_week
             existing_mother["trimester"] = _compute_trimester(resolved_week)
@@ -149,17 +177,20 @@ def verify_phone_otp_and_upsert_user(
 
     user_record = {
         "uid": verified_uid or (existing.get("uid") if existing else f"usr-{uuid.uuid4().hex[:8]}"),
-        "phone": clean_phone,
+        "phone": raw_phone,
         "name": resolved_name,
         "age": resolved_age,
         "gestational_week": resolved_week,
         "mother_id": mother_id,
+        "role": "mother",
     }
-
+    _MEMORY_USERS[raw_phone] = user_record
     _MEMORY_USERS[clean_phone] = user_record
     if db is not None:
         try:
-            db.collection("users").document(clean_phone).set(user_record, merge=True)
+            db.collection("users").document(raw_phone).set(user_record, merge=True)
+            if clean_phone != raw_phone:
+                db.collection("users").document(clean_phone).set(user_record, merge=True)
         except Exception as exc:
             logger.warning("Firestore user save failed: %s", exc)
 

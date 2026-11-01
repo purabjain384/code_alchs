@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useState } from 'react';
+import Link from 'next/link';
 import AuthGate from '@/components/AuthGate';
 import { HindiAudioPlayer } from '@/components/HindiAudioPlayer';
 import Sidebar from '@/components/Sidebar';
@@ -231,13 +232,21 @@ export default function HomePage() {
                   {user.gestational_week ? ` • Pregnancy Week ${user.gestational_week}` : ''}
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={handleOpenNewForm}
-                className="px-5 py-3 rounded-xl bg-teal-700 hover:bg-teal-800 text-white font-semibold text-sm shadow-xs transition cursor-pointer"
-              >
-                + New Checkup
-              </button>
+              <div className="flex items-center gap-3">
+                <Link
+                  href="/supervisor"
+                  className="px-4 py-3 rounded-xl border border-slate-300 bg-white hover:bg-slate-100 text-slate-700 font-semibold text-sm transition"
+                >
+                  Supervisor View
+                </Link>
+                <button
+                  type="button"
+                  onClick={handleOpenNewForm}
+                  className="px-5 py-3 rounded-xl bg-teal-700 hover:bg-teal-800 text-white font-semibold text-sm shadow-xs transition cursor-pointer"
+                >
+                  + New Checkup
+                </button>
+              </div>
             </div>
 
             {/* Mother's Personal Summary Cards (Purely from Backend DB) */}
@@ -280,15 +289,14 @@ export default function HomePage() {
                   BP Trend Status
                 </p>
                 <p
-                  className={`text-sm font-bold mt-2.5 ${
-                    latestVisit?.trend_flag ? 'text-amber-700' : 'text-slate-700'
-                  }`}
+                  className={`text-sm font-bold mt-2.5 ${latestVisit?.trend_flag ? 'text-amber-700' : 'text-slate-700'
+                    }`}
                 >
                   {latestVisit?.trend_flag === 'bp_rising_3_visits'
                     ? 'Rising across 3 checkups'
                     : myVisits.length > 0
-                    ? 'Stable / Normal'
-                    : 'Awaiting first checkup'}
+                      ? 'Stable / Normal'
+                      : 'Awaiting first checkup'}
                 </p>
               </div>
             </div>
@@ -587,11 +595,10 @@ export default function HomePage() {
                             checked ? prev.filter((s) => s !== sym) : [...prev, sym]
                           )
                         }
-                        className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition cursor-pointer ${
-                          checked
+                        className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition cursor-pointer ${checked
                             ? 'bg-red-50 border-red-300 text-red-800'
                             : 'bg-white border-slate-300 text-slate-600 hover:bg-slate-50'
-                        }`}
+                          }`}
                       >
                         {checked ? '✓ ' : '+ '}
                         {sym}
@@ -718,8 +725,8 @@ export default function HomePage() {
                     cls === 'high'
                       ? 'bg-red-600'
                       : cls === 'mid'
-                      ? 'bg-amber-500'
-                      : 'bg-emerald-600';
+                        ? 'bg-amber-500'
+                        : 'bg-emerald-600';
                   return (
                     <div key={cls}>
                       <div className="flex justify-between text-xs font-semibold mb-1">

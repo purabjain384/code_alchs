@@ -19,6 +19,23 @@ export function isFirebaseClientConfigured(): boolean {
   );
 }
 
+export function formatE164Phone(rawPhone: string): string {
+  const trimmed = rawPhone.trim();
+  if (trimmed.startsWith('+')) {
+    return '+' + trimmed.slice(1).replace(/\D/g, '');
+  }
+  const digits = trimmed.replace(/\D/g, '');
+  if (digits.length === 10) {
+    return `+91${digits}`;
+  }
+  if (digits.length === 12 && digits.startsWith('91')) {
+    return `+${digits}`;
+  }
+  return `+${digits}`;
+}
+
+let activeRecaptchaVerifier: { clear: () => void } | null = null;
+
 export async function triggerFirebasePhoneOtp(
   phone: string,
   recaptchaContainerId: string
@@ -32,10 +49,28 @@ export async function triggerFirebasePhoneOtp(
 
     const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
     const auth = getAuth(app);
+
+    if (activeRecaptchaVerifier) {
+      try {
+        activeRecaptchaVerifier.clear();
+      } catch {
+        // ignore cleanup error
+      }
+      activeRecaptchaVerifier = null;
+    }
+
+    const containerEl = document.getElementById(recaptchaContainerId);
+    if (containerEl) {
+      containerEl.innerHTML = '';
+    }
+
     const verifier = new RecaptchaVerifier(auth, recaptchaContainerId, {
       size: 'invisible',
     });
-    return await signInWithPhoneNumber(auth, phone, verifier);
+    activeRecaptchaVerifier = verifier;
+
+    const e164Phone = formatE164Phone(phone);
+    return await signInWithPhoneNumber(auth, e164Phone, verifier);
   } catch (err) {
     console.warn('Firebase client phone auth fallback to backend OTP:', err);
     return null;
